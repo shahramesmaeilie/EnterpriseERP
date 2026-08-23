@@ -270,22 +270,17 @@ class LoginWindow(QWidget):
             QMessageBox.warning(self, "خطا در ورود", message)
             return
 
-        QMessageBox.information(self, "ورود موفق", message)
         self.open_dashboard()
 
     def open_dashboard(self):
-        try:
-            from app.ui.dashboard import DashboardWindow
-        except ImportError:
-            QMessageBox.information(
-                self,
-                "در دست ساخت",
-                "صفحه داشبورد هنوز آماده نشده است.",
-            )
-            return
+        # import داخل تابع تا از circular import جلوگیری شود
+        # (dashboard.py خودش LoginWindow را import می‌کند)
+        from app.ui.dashboard import Dashboard
 
-        self.dashboard = DashboardWindow()
-        self.dashboard.show()
+        # حتماً روی self نگه داشته شود؛ در غیر این صورت پنجره
+        # بلافاصله توسط garbage collector حذف می‌شود
+        self.dashboard = Dashboard()
+        self.dashboard.showMaximized()
         self.close()
 
     # ---------- استایل ----------

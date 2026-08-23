@@ -1,267 +1,299 @@
+# -*- coding: utf-8 -*-
 import sqlite3
-
 import bcrypt
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDialog, QFormLayout, QCheckBox, QMessageBox, QDialogButtonBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
+    QComboBox, QCheckBox, QMessageBox, QDialogButtonBox, QGroupBox,
 )
 
-from app.core.session import Session
 from app.database.connection import get_connection
+from app.core.session import Session
+
+# کلید دسترسی -> عنوان فارسی (باید با منوهای داشبورد یکی باشد)
+PAGE_PERMISSIONS = [
+    ("users", "مدیریت کاربران"),
+    ("products", "کالاها"),
+    ("customers", "مشتریان"),
+    ("invoices", "فاکتورها"),
+    ("reports", "گزارش‌ها"),
+]
 
 
 class UserDialog(QDialog):
-    """دیالوگ افزودن یا ویرایش کاربر."""
+    """افزودن/ویرایش کاربر. در حالت ویرایش، رمز خالی یعنی بدون تغییر."""
 
-    def __init__(self, parent=None, user=None):
+    def __init__(self, parent=None, user: dict | None = None):
         super().__init__(parent)
-        self.user = user
         self.setWindowTitle("ویرایش کاربر" if user else "افزودن کاربر")
         self.setMinimumWidth(380)
 
         form = QFormLayout(self)
-        form.setSpacing(12)
-
-        self.username_input = QLineEdit()
-        self.fullname_input = QLineEdit()
-        self.email_input = QLineEdit()
+        self.username_input = QLineEdit(user["username"] if user else "")
+        self.fullname_input = QLineEdit(user.get("full_name") or "" if user else "")
+        self.email_input = QLineEdit(user.get("email") or "" if user else "")
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
-        self.active_checkbox = QCheckBox("حساب فعال باشد")
-        self.active_checkbox.setChecked(True)
+        if user:
+            self.password_input.setPlaceholderText("خالی = بدون تغییر")
+
+        self.role_combo = QComboBox()
+        self.role_combo.addItem("کاربر عادی", "user")
+        self.role_combo.addItem("مدیر", "admin")
+        if user and user.get("role") == "admin":
+            self.role_combo.setCurrentIndex(1)
+
+        self.active_check = QCheckBox("فعال")
+        self.active_check.setChecked(bool(user["is_active"]) if user else True)
 
         form.addRow("نام کاربری:", self.username_input)
         form.addRow("نام کامل:", self.fullname_input)
         form.addRow("ایمیل:", self.email_input)
-        password_label = "رمز عبور (خالی = بدون تغییر):" if user else "رمز عبور:"
-        form.addRow(password_label, self.password_input)
-        form.addRow("", self.active_checkbox)
-
-        if user:
-            self.username_input.setText(user["username"])
-            self.fullname_input.setText(user.get("full_name") or "")
-            self.email_input.setText(user.get("email") or "")
-            self.active_checkbox.setChecked(bool(user.get("is_active", 1)))
+        form.addRow("رمز عبور:", self.password_input)
+        form.addRow("نقش:", self.role_combo)
+        form.addRow("", self.active_check)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("ذخیره")
-        buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
-        buttons.accepted.connect(self._validate_and_accept)
+        buttons.accepted.connect(self._validate)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+        self._is_edit = user is not None
 
-        self.setStyleSheet("""
-            QDialog { background: #faf8ff; }
-            QLineEdit {
-                padding: 8px 10px;
-                border: 1px solid #d5cbf0;
-                border-radius: 8px;
-                background: white;
-            }
-            QLineEdit:focus { border: 1px solid #7657c8; }
-            QPushButton {
-                background: #7657c8; color: white;
-                border: none; border-radius: 8px;
-                padding: 8px 20px;
-            }
-            QPushButton:hover { background: #5a3fa8; }
-        """)
-
-    def _validate_and_accept(self):
+    def _validate(self):
         if not self.username_input.text().strip():
-            QMessageBox.warning(self, "خطا", "نام کاربری را وارد کنید.")
+            QMessageBox.warning(self, "خطا", "نام کاربری الزامی است.")
             return
-        if self.user is None and not self.password_input.text():
-            QMessageBox.warning(self, "خطا", "رمز عبور را وارد کنید.")
+        if not self._is_edit and not self.password_input.text():
+            QMessageBox.warning(self, "خطا", "رمز عبور برای کاربر جدید الزامی است.")
             return
         self.accept()
 
-    def get_data(self):
+    def get_data(self) -> dict:
         return {
             "username": self.username_input.text().strip(),
             "full_name": self.fullname_input.text().strip(),
             "email": self.email_input.text().strip(),
             "password": self.password_input.text(),
-            "is_active": 1 if self.active_checkbox.isChecked() else 0,
+            "role": self.role_combo.currentData(),
+            "is_active": 1 if self.active_check.isChecked() else 0,
         }
 
 
+class PermissionsDialog(QDialog):
+    """تعیین دسترسی کاربر به صفحات داشبورد با چک‌باکس."""
+
+    def __init__(self, parent=None, username: str = "", current: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle(f"دسترسی‌های {username}")
+        self.setMinimumWidth(320)
+        layout = QVBoxLayout(self)
+
+        box = QGroupBox("صفحات مجاز")
+        box_layout = QVBoxLayout(box)
+        current_set = {p for p in current.split(",") if p}
+        self._checks: dict[str, QCheckBox] = {}
+        for key, title in PAGE_PERMISSIONS:
+            cb = QCheckBox(title)
+            cb.setChecked(key in current_set)
+            self._checks[key] = cb
+            box_layout.addWidget(cb)
+        layout.addWidget(box)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_permissions(self) -> str:
+        return ",".join(k for k, cb in self._checks.items() if cb.isChecked())
+
+
 class UsersPage(QWidget):
-    """صفحه مدیریت کاربران: جدول، جست‌وجو، افزودن/ویرایش/حذف."""
+    COLUMNS = ["شناسه", "نام کاربری", "نام کامل", "ایمیل", "نقش", "وضعیت", "عملیات"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._build_ui()
+        self.load_users()
+
+    def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setSpacing(14)
 
-        # هدر
-        header = QHBoxLayout()
         title = QLabel("مدیریت کاربران")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #4a3a7a;")
-        header.addWidget(title)
-        header.addStretch()
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #4c1d95;")
+        layout.addWidget(title)
 
+        top = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("جست‌وجو…")
-        self.search_input.setFixedWidth(240)
+        self.search_input.setPlaceholderText("جست‌وجو بر اساس نام کاربری، نام یا ایمیل...")
         self.search_input.textChanged.connect(self.load_users)
-        header.addWidget(self.search_input)
-
-        add_btn = QPushButton("＋ افزودن کاربر")
+        add_btn = QPushButton("+ افزودن کاربر")
         add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self.add_user)
-        header.addWidget(add_btn)
-        layout.addLayout(header)
-
-        # جدول
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(
-            ["شناسه", "نام کاربری", "نام کامل", "ایمیل", "وضعیت", "عملیات"]
+        add_btn.setStyleSheet(
+            "QPushButton{background:#7c3aed;color:white;border-radius:8px;"
+            "padding:8px 16px;font-weight:bold;}"
+            "QPushButton:hover{background:#6d28d9;}"
         )
+        add_btn.clicked.connect(self.add_user)
+        top.addWidget(self.search_input, 1)
+        top.addWidget(add_btn)
+        layout.addLayout(top)
+
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self.table.setColumnWidth(6, 220)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         layout.addWidget(self.table)
 
-        self.setStyleSheet("""
-            QLineEdit {
-                padding: 8px 10px;
-                border: 1px solid #d5cbf0;
-                border-radius: 8px;
-                background: white;
-            }
-            QLineEdit:focus { border: 1px solid #7657c8; }
-            QPushButton {
-                background: #7657c8; color: white;
-                border: none; border-radius: 8px;
-                padding: 9px 18px; font-size: 13px;
-            }
-            QPushButton:hover { background: #5a3fa8; }
-            QTableWidget {
-                background: white;
-                border: 1px solid #e3dcf7;
-                border-radius: 10px;
-                gridline-color: #efeafc;
-            }
-            QHeaderView::section {
-                background: #ede7fb; color: #4a3a7a;
-                padding: 10px; border: none; font-weight: bold;
-            }
-        """)
-
-        self.load_users()
-
     # ---------- داده ----------
 
     def load_users(self):
-        term = self.search_input.text().strip()
+        term = f"%{self.search_input.text().strip()}%" if hasattr(self, "search_input") else "%%"
         conn = get_connection()
-        if term:
+        try:
             rows = conn.execute(
-                """SELECT id, username, full_name, email, is_active FROM users
-                   WHERE username LIKE ? OR full_name LIKE ? OR email LIKE ?
-                   ORDER BY id""",
-                (f"%{term}%", f"%{term}%", f"%{term}%"),
+                "SELECT id, username, full_name, email, role, permissions, is_active "
+                "FROM users WHERE username LIKE ? OR full_name LIKE ? OR email LIKE ? "
+                "ORDER BY id",
+                (term, term, term),
             ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT id, username, full_name, email, is_active FROM users ORDER BY id"
-            ).fetchall()
+        finally:
+            conn.close()
 
-        self.table.setRowCount(len(rows))
-        for r, row in enumerate(rows):
+        self.table.setRowCount(0)
+        for row in rows:
             user = dict(row)
-            self.table.setItem(r, 0, QTableWidgetItem(str(user["id"])))
-            self.table.setItem(r, 1, QTableWidgetItem(user["username"]))
-            self.table.setItem(r, 2, QTableWidgetItem(user.get("full_name") or "—"))
-            self.table.setItem(r, 3, QTableWidgetItem(user.get("email") or "—"))
-            status = QTableWidgetItem("فعال" if user.get("is_active", 1) else "غیرفعال")
-            status.setForeground(Qt.darkGreen if user.get("is_active", 1) else Qt.red)
-            self.table.setItem(r, 4, status)
+            r = self.table.rowCount()
+            self.table.insertRow(r)
+            values = [
+                str(user["id"]), user["username"], user.get("full_name") or "—",
+                user.get("email") or "—",
+                "مدیر" if user["role"] == "admin" else "کاربر عادی",
+                "فعال" if user["is_active"] else "غیرفعال",
+            ]
+            for c, v in enumerate(values):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(r, c, item)
+            self.table.setCellWidget(r, 6, self._action_buttons(user))
+            self.table.setRowHeight(r, 44)
 
-            actions = QWidget()
-            h = QHBoxLayout(actions)
-            h.setContentsMargins(4, 2, 4, 2)
-            edit_btn = QPushButton("ویرایش")
-            del_btn = QPushButton("حذف")
-            del_btn.setStyleSheet(
-                "background: #e05c6a; border-radius: 6px; padding: 5px 12px;"
-            )
-            edit_btn.setStyleSheet(
-                "background: #9b7fe0; border-radius: 6px; padding: 5px 12px;"
-            )
-            edit_btn.clicked.connect(lambda _, u=user: self.edit_user(u))
-            del_btn.clicked.connect(lambda _, u=user: self.delete_user(u))
-            h.addWidget(edit_btn)
-            h.addWidget(del_btn)
-            self.table.setCellWidget(r, 5, actions)
+    def _action_buttons(self, user: dict) -> QWidget:
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(4, 2, 4, 2)
+        h.setSpacing(6)
+        style = ("QPushButton{{background:{bg};color:white;border-radius:6px;"
+                 "padding:4px 10px;}} QPushButton:hover{{background:{hover};}}")
+
+        edit_btn = QPushButton("ویرایش")
+        edit_btn.setStyleSheet(style.format(bg="#8b5cf6", hover="#7c3aed"))
+        edit_btn.clicked.connect(lambda _, u=user: self.edit_user(u))
+
+        perm_btn = QPushButton("دسترسی")
+        perm_btn.setStyleSheet(style.format(bg="#0ea5e9", hover="#0284c7"))
+        perm_btn.clicked.connect(lambda _, u=user: self.set_permissions(u))
+
+        del_btn = QPushButton("حذف")
+        del_btn.setStyleSheet(style.format(bg="#ef4444", hover="#dc2626"))
+        del_btn.clicked.connect(lambda _, u=user: self.delete_user(u))
+
+        for b in (edit_btn, perm_btn, del_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            h.addWidget(b)
+        return w
 
     # ---------- عملیات ----------
 
     def add_user(self):
-        dialog = UserDialog(self)
-        if dialog.exec() != QDialog.Accepted:
+        dlg = UserDialog(self)
+        if dlg.exec() != QDialog.Accepted:
             return
-        data = dialog.get_data()
+        d = dlg.get_data()
         password_hash = bcrypt.hashpw(
-            data["password"].encode("utf-8"), bcrypt.gensalt()
+            d["password"].encode("utf-8"), bcrypt.gensalt()
         ).decode("utf-8")
         conn = get_connection()
         try:
             conn.execute(
-                """INSERT INTO users (username, password_hash, full_name, email, is_active)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (data["username"], password_hash, data["full_name"],
-                 data["email"], data["is_active"]),
+                "INSERT INTO users (username, password_hash, full_name, email, role, permissions, is_active) "
+                "VALUES (?, ?, ?, ?, ?, '', ?)",
+                (d["username"], password_hash, d["full_name"], d["email"], d["role"], d["is_active"]),
             )
             conn.commit()
         except sqlite3.IntegrityError:
             QMessageBox.warning(self, "خطا", "این نام کاربری قبلاً ثبت شده است.")
-            return
+        finally:
+            conn.close()
         self.load_users()
 
-    def edit_user(self, user):
-        dialog = UserDialog(self, user=user)
-        if dialog.exec() != QDialog.Accepted:
+    def edit_user(self, user: dict):
+        dlg = UserDialog(self, user=user)
+        if dlg.exec() != QDialog.Accepted:
             return
-        data = dialog.get_data()
+        d = dlg.get_data()
         conn = get_connection()
-        conn.execute(
-            """UPDATE users SET username = ?, full_name = ?, email = ?, is_active = ?
-               WHERE id = ?""",
-            (data["username"], data["full_name"], data["email"],
-             data["is_active"], user["id"]),
-        )
-        if data["password"]:
-            password_hash = bcrypt.hashpw(
-                data["password"].encode("utf-8"), bcrypt.gensalt()
-            ).decode("utf-8")
-            conn.execute(
-                "UPDATE users SET password_hash = ? WHERE id = ?",
-                (password_hash, user["id"]),
-            )
-        conn.commit()
+        try:
+            if d["password"]:
+                password_hash = bcrypt.hashpw(
+                    d["password"].encode("utf-8"), bcrypt.gensalt()
+                ).decode("utf-8")
+                conn.execute(
+                    "UPDATE users SET username=?, full_name=?, email=?, role=?, is_active=?, password_hash=? WHERE id=?",
+                    (d["username"], d["full_name"], d["email"], d["role"], d["is_active"], password_hash, user["id"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE users SET username=?, full_name=?, email=?, role=?, is_active=? WHERE id=?",
+                    (d["username"], d["full_name"], d["email"], d["role"], d["is_active"], user["id"]),
+                )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            QMessageBox.warning(self, "خطا", "این نام کاربری قبلاً ثبت شده است.")
+        finally:
+            conn.close()
         self.load_users()
 
-    def delete_user(self, user):
-        current = Session.current_user or {}
-        if user["id"] == current.get("id"):
-            QMessageBox.warning(self, "خطا", "نمی‌توانید حساب خودتان را حذف کنید.")
+    def set_permissions(self, user: dict):
+        if user["role"] == "admin":
+            QMessageBox.information(self, "دسترسی", "مدیر به همه‌ی بخش‌ها دسترسی کامل دارد.")
             return
-        answer = QMessageBox.question(
+        dlg = PermissionsDialog(self, username=user["username"],
+                                current=user.get("permissions") or "")
+        if dlg.exec() != QDialog.Accepted:
+            return
+        conn = get_connection()
+        try:
+            conn.execute("UPDATE users SET permissions=? WHERE id=?",
+                         (dlg.get_permissions(), user["id"]))
+            conn.commit()
+        finally:
+            conn.close()
+        self.load_users()
+
+    def delete_user(self, user: dict):
+        current = Session.current_user or {}
+        if current.get("id") == user["id"]:
+            QMessageBox.warning(self, "خطا", "نمی‌توانید حساب کاربری خودتان را حذف کنید.")
+            return
+        if QMessageBox.question(
             self, "حذف کاربر",
             f"کاربر «{user['username']}» حذف شود؟",
             QMessageBox.Yes | QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+        ) != QMessageBox.Yes:
             return
         conn = get_connection()
-        conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
-        conn.commit()
+        try:
+            conn.execute("DELETE FROM users WHERE id=?", (user["id"],))
+            conn.commit()
+        finally:
+            conn.close()
         self.load_users()
