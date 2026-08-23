@@ -25,4 +25,3 @@ class Customer:
     id: int | None = None
     full_name: str = ""
     phone: str | None = None
-
