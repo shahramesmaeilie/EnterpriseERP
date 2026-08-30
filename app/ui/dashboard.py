@@ -2,6 +2,7 @@
 """app/ui/dashboard.py — داشبورد اصلی Enterprise ERP"""
 
 from pathlib import Path
+from typing import Optional, Set
 
 from PySide6.QtCore import Qt, QSize, QByteArray, QPoint
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor
@@ -16,7 +17,7 @@ from app.core.session import Session
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOGO_SVG = PROJECT_ROOT / "Enterprise.svg"
 
-# ---------------------------------------------------------------- SVG icons
+# ================================================================ SVG ICONS
 _SVG_TEMPLATE = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
     'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
@@ -77,47 +78,62 @@ def create_svg_icon(svg_str: str, color: str = "#ffffff", size: int = 24) -> QIc
     return QIcon(pixmap)
 
 
-# ---------------------------------------------------------------- Dashboard
+# ================================================================ DASHBOARD
 class Dashboard(QWidget):
     """داشبورد اصلی با کنترل دسترسی مبتنی بر نقش و permissions."""
 
-    # (کلید، عنوان فارسی، نام آیکون)
     MENU_ITEMS = [
-        ("home",      "داشبورد",         "home"),
-        ("users",     "مدیریت کاربران",  "users"),
-        ("inventory", "انبار و کالا",     "inventory"),
-        ("sales",     "فروش",            "sales"),
-        ("reports",   "گزارش‌ها",        "reports"),
-        ("settings",  "تنظیمات",         "settings"),
+        ("home", "داشبورد", "home"),
+        ("users", "مدیریت کاربران", "users"),
+        ("inventory", "انبار و کالا", "inventory"),
+        ("purchases", "خرید / ورود انبار", "inventory"),
+        ("sales", "فروش", "sales"),
+        ("reports", "گزارش‌ها", "reports"),
+        ("settings", "تنظیمات", "settings"),
     ]
 
-    # نگاشت نام‌های قدیمی ذخیره‌شده در دیتابیس به کلیدهای واقعی منو
     _PERMISSION_ALIASES = {
-        "products":  "inventory",
+        "products": "inventory",
         "customers": "sales",
-        "invoices":  "sales",
+        "invoices": "sales",
     }
 
-    def __init__(self):
+    def __init__(self, current_user_id: Optional[int] = None):
         super().__init__()
+        self._current_user_id = current_user_id
+        self._drag_pos: Optional[QPoint] = None
+        self._login = None
+        self._page_cache: dict = {}  # کش صفحات برای دسترسی آسان
+
+        self._setup_ui()
+        self._connect_signals()
+        self._apply_styles()
+
+    # ============================================================ UI SETUP
+    def _setup_ui(self) -> None:
+        """راه‌اندازی اولیه رابط کاربری."""
         self.setWindowTitle("Enterprise ERP")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setLayoutDirection(Qt.RightToLeft)
         self.resize(1200, 720)
-        self._drag_pos = None
 
+        # کانتینر اصلی
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self.container = QFrame(objectName="mainContainer")
         outer.addWidget(self.container)
 
+        # لایه‌بندی اصلی
         root = QVBoxLayout(self.container)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # هدر
         root.addWidget(self._build_header())
 
+        # بدنه (سایدبار + استک)
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
@@ -127,9 +143,12 @@ class Dashboard(QWidget):
         body.addWidget(self._build_sidebar())
         body.addWidget(self.stack, 1)
 
-        self._apply_styles()
+    def _connect_signals(self) -> None:
+        """اتصال سیگنال‌های بین صفحات."""
+        # اتصال سیگنال بین خرید و انبار پس از ساخته شدن صفحات
+        # این کار در _build_sidebar انجام می‌شود چون صفحات در آنجا ساخته می‌شوند
 
-    # ------------------------------------------------------------ کاربر جاری
+    # ============================================================ USER INFO
     def _current_user(self) -> dict:
         return Session.current_user or {}
 
@@ -147,45 +166,54 @@ class Dashboard(QWidget):
     def _role(self) -> str:
         return (self._current_user().get("role") or "user").lower()
 
-    # ------------------------------------------------------------ دسترسی‌ها
-    def _permissions(self) -> set[str]:
-        """permissions کاربر با اعمال alias برای نام‌های قدیمی دیتابیس."""
+    # ============================================================ PERMISSIONS
+    def _permissions(self) -> Set[str]:
         raw = self._current_user().get("permissions") or ""
         perms = {p.strip() for p in raw.split(",") if p.strip()}
         return {self._PERMISSION_ALIASES.get(p, p) for p in perms}
 
     def has_access(self, key: str) -> bool:
+        """بررسی دسترسی کاربر به یک بخش."""
         if key == "home":
             return True
         if self._role() == "admin":
             return True
         return key in self._permissions()
 
-    # ------------------------------------------------------------ header
+    # ============================================================ HEADER
     def _build_header(self) -> QFrame:
+        """ساخت هدر برنامه."""
         header = QFrame(objectName="header")
         header.setFixedHeight(58)
+
         lay = QHBoxLayout(header)
         lay.setContentsMargins(16, 8, 16, 8)
         lay.setSpacing(10)
 
+        # لوگو
         if LOGO_SVG.exists():
             logo = QLabel()
             logo.setPixmap(QIcon(str(LOGO_SVG)).pixmap(QSize(36, 36)))
             lay.addWidget(logo)
 
+        # عنوان
         title = QLabel("Enterprise ERP", objectName="appTitle")
         lay.addWidget(title)
         lay.addStretch(1)
 
+        # اطلاعات کاربر
         role_fa = "مدیر سیستم" if self._role() == "admin" else "کاربر"
         user_lbl = QLabel(f"{self._display_name()}  |  {role_fa}",
                           objectName="userLabel")
         lay.addWidget(user_lbl)
 
-        for name, slot in (("minimize", self.showMinimized),
-                           ("maximize", self._toggle_maximize),
-                           ("close", self.close)):
+        # دکمه‌های پنجره
+        window_buttons = [
+            ("minimize", self.showMinimized),
+            ("maximize", self._toggle_maximize),
+            ("close", self.close),
+        ]
+        for name, slot in window_buttons:
             btn = QPushButton(objectName="winBtn")
             btn.setProperty("kind", name)
             btn.setIcon(create_svg_icon(ICONS[name], "#4d3a78", 16))
@@ -196,13 +224,19 @@ class Dashboard(QWidget):
 
         return header
 
-    def _toggle_maximize(self):
-        self.showNormal() if self.isMaximized() else self.showMaximized()
+    def _toggle_maximize(self) -> None:
+        """تغییر حالت تمام‌صفحه/عادی."""
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
 
-    # ------------------------------------------------------------ sidebar
+    # ============================================================ SIDEBAR
     def _build_sidebar(self) -> QFrame:
+        """ساخت سایدبار و منو."""
         sidebar = QFrame(objectName="sidebar")
         sidebar.setFixedWidth(230)
+
         lay = QVBoxLayout(sidebar)
         lay.setContentsMargins(12, 18, 12, 18)
         lay.setSpacing(8)
@@ -210,29 +244,30 @@ class Dashboard(QWidget):
         self.menu_group = QButtonGroup(self)
         self.menu_group.setExclusive(True)
 
-        # فقط آیتم‌های مجاز ساخته می‌شوند تا اندیس دکمه و صفحه هماهنگ بماند
-        for key, label, icon in self.MENU_ITEMS:
+        # ساخت آیتم‌های منو
+        for key, label, icon_key in self.MENU_ITEMS:
             if not self.has_access(key):
                 continue
-            index = self.stack.count()
-            self.stack.addWidget(self._create_page(key, label))
 
+            # ساخت صفحه و افزودن به استک
+            page = self._create_page(key, label)
+            index = self.stack.addWidget(page)
+            self._page_cache[key] = page
+
+            # دکمه منو
             btn = QPushButton(f"  {label}", objectName="menuBtn")
-            btn.setIcon(create_svg_icon(ICONS[icon], "#ffffff", 20))
+            btn.setIcon(create_svg_icon(ICONS[icon_key], "#ffffff", 20))
             btn.setIconSize(QSize(20, 20))
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            btn.clicked.connect(lambda _=False, i=index: self.stack.setCurrentIndex(i))
+            btn.clicked.connect(lambda checked=False, idx=index: self.stack.setCurrentIndex(idx))
             self.menu_group.addButton(btn)
             lay.addWidget(btn)
 
-        if self.menu_group.buttons():
-            self.menu_group.buttons()[0].setChecked(True)
-            self.stack.setCurrentIndex(0)
-
         lay.addStretch(1)
 
+        # دکمه خروج
         logout = QPushButton("  خروج از حساب", objectName="logoutBtn")
         logout.setIcon(create_svg_icon(ICONS["logout"], "#ffffff", 20))
         logout.setIconSize(QSize(20, 20))
@@ -240,41 +275,131 @@ class Dashboard(QWidget):
         logout.clicked.connect(self._logout)
         lay.addWidget(logout)
 
+        # انتخاب اولین آیتم
+        if self.menu_group.buttons():
+            self.menu_group.buttons()[0].setChecked(True)
+
+        # اتصال سیگنال‌های بین صفحات پس از ساخت
+        self._connect_page_signals()
+
         return sidebar
 
-    # ------------------------------------------------------------ صفحات
+    def _connect_page_signals(self) -> None:
+        """اتصال سیگنال‌های بین صفحات مختلف."""
+        purchases_page = self._page_cache.get("purchases")
+        inventory_page = self._page_cache.get("inventory")
+        sales_page = self._page_cache.get("sales")
+
+        # اتصال خرید → انبار
+        if purchases_page and inventory_page:
+            if hasattr(purchases_page, "inventory_updated") and hasattr(inventory_page, "refresh"):
+                purchases_page.inventory_updated.connect(inventory_page.refresh)
+                print("✅ Signal 'inventory_updated' connected to InventoryPage.refresh")
+
+        # اتصال فروش → انبار و داشبورد
+        if sales_page and inventory_page:
+            if hasattr(sales_page, "inventory_updated") and hasattr(inventory_page, "refresh"):
+                sales_page.inventory_updated.connect(inventory_page.refresh)
+                print("✅ Signal 'inventory_updated' connected from SalesPage")
+
+            # اتصال فروش به بروزرسانی داشبورد
+            if hasattr(sales_page, "data_changed"):
+                sales_page.data_changed.connect(self._on_dashboard_data_changed)
+
+    # ============================================================ PAGES
     def _create_page(self, key: str, label: str) -> QWidget:
-        if key == "users":
-            try:
-                from app.ui.pages.users import UsersPage  # import محلی برای جلوگیری از circular import
+        """ساخت صفحه مربوط به یک بخش."""
+        try:
+            if key == "home":
+                return self._create_home_page()
+
+            if key == "users":
+                from app.ui.pages.users import UsersPage
                 return UsersPage()
-            except ImportError as exc:
-                return self._placeholder(f"خطا در بارگذاری صفحه کاربران:\n{exc}")
-        if key == "home":
-            return self._placeholder(
-                f"خوش آمدید، {self._display_name()} عزیز!\n"
-                "از منوی کنار برای دسترسی به بخش‌های سیستم استفاده کنید."
-            )
+
+            if key == "inventory":
+                from app.ui.pages.inventory import InventoryPage
+                return InventoryPage()
+
+            if key == "purchases":
+                from app.ui.pages.purchases import PurchasesPage
+                return PurchasesPage()
+
+            if key == "sales":
+                from app.ui.pages.sales import SalesPage
+                return SalesPage(current_user_id=self._current_user_id)
+
+            if key == "reports":
+                from app.ui.pages.reports import ReportsPage
+                return ReportsPage()
+
+            if key == "settings":
+                from app.ui.pages.settings import SettingsPage
+                return SettingsPage()
+
+        except ImportError as exc:
+            return self._placeholder(f"خطا در بارگذاری صفحه {label}:\n{exc}")
+        except Exception as exc:
+            return self._placeholder(f"خطای غیرمنتظره در صفحه {label}:\n{exc}")
+
         return self._placeholder(f"صفحه «{label}» هنوز آماده نشده است.")
+
+    def _create_home_page(self) -> QWidget:
+        """ساخت صفحه اصلی داشبورد."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+
+        # پیام خوش‌آمدگویی
+        welcome = QLabel(
+            f"خوش آمدید، {self._display_name()} عزیز!\n"
+            "از منوی کنار برای دسترسی به بخش‌های سیستم استفاده کنید.",
+            objectName="placeholderLabel"
+        )
+        welcome.setAlignment(Qt.AlignCenter)
+        lay.addWidget(welcome)
+
+        return page
 
     @staticmethod
     def _placeholder(text: str) -> QWidget:
+        """ساخت صفحه placeholder برای خطاها."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lbl = QLabel(text, objectName="placeholderLabel")
         lbl.setAlignment(Qt.AlignCenter)
+        lbl.setWordWrap(True)
         lay.addWidget(lbl)
         return page
 
-    # ------------------------------------------------------------ logout
-    def _logout(self):
+    # ============================================================ DATA UPDATES
+    def _on_dashboard_data_changed(self) -> None:
+        """بروزرسانی اطلاعات داشبورد پس از تغییر داده‌ها."""
+        self._refresh_inventory_page()
+        self._refresh_home_page_stats()
+
+    def _refresh_inventory_page(self) -> None:
+        """بروزرسانی صفحه انبار."""
+        inventory_page = self._page_cache.get("inventory")
+        if inventory_page and hasattr(inventory_page, "refresh"):
+            inventory_page.refresh()
+
+    def _refresh_home_page_stats(self) -> None:
+        """بروزرسانی آمار صفحه اصلی."""
+        home_page = self._page_cache.get("home")
+        if home_page and hasattr(home_page, "reload_stats"):
+            home_page.reload_stats()
+
+    # ============================================================ LOGOUT
+    def _logout(self) -> None:
+        """خروج از حساب کاربری."""
         Session.current_user = None
-        from app.ui.login import LoginWindow  # import محلی برای جلوگیری از circular import
+
+        from app.ui.login import LoginWindow
         self._login = LoginWindow()
         self._login.show()
         self.close()
 
-    # ------------------------------------------------------------ drag پنجره
+    # ============================================================ WINDOW DRAG
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and event.position().y() <= 58:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -289,8 +414,9 @@ class Dashboard(QWidget):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 
-    # ------------------------------------------------------------ استایل
-    def _apply_styles(self):
+    # ============================================================ STYLES
+    def _apply_styles(self) -> None:
+        """اعمال استایل‌های CSS."""
         self.setStyleSheet("""
             #mainContainer {
                 background-color: #faf8ff;

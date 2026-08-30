@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     quantity   INTEGER NOT NULL DEFAULT 1,
     unit_price REAL NOT NULL
 );
+
+# CREATE TABLE IF NOT EXISTS employees (
+#     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+#     first_name  TEXT NOT NULL DEFAULT '',
+#     last_name   TEXT NOT NULL DEFAULT '',
+#     job_title   TEXT NOT NULL DEFAULT '',
+#     salary      REAL NOT NULL DEFAULT 0,
+#     hire_date   TEXT NOT NULL DEFAULT '',
+#     is_active   INTEGER NOT NULL DEFAULT 1,
+#     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+# );
+
 """
 
 

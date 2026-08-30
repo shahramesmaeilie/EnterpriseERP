@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-"""ماژول UI برنامه"""
+"""ابزارهای کمکی برای UI"""
 
-# importها را به صورت try/except انجام دهید تا در صورت نبود ماژول خطا ندهد
 try:
     from app.ui.utils.invoice_printer import InvoicePrinter
 except ImportError:
