@@ -83,19 +83,20 @@ class Dashboard(QWidget):
     """داشبورد اصلی با کنترل دسترسی مبتنی بر نقش و permissions."""
 
     MENU_ITEMS = [
-        ("home", "داشبورد", "home"),
-        ("users", "مدیریت کاربران", "users"),
-        ("inventory", "انبار و کالا", "inventory"),
-        ("purchases", "خرید / ورود انبار", "inventory"),
-        ("sales", "فروش", "sales"),
-        ("reports", "گزارش‌ها", "reports"),
-        ("settings", "تنظیمات", "settings"),
+        ("home", "🏠 داشبورد", "home"),
+        ("users", "👥 مدیریت کاربران", "users"),
+        ("inventory", "📦 انبار و کالا", "inventory"),
+        ("purchases", "🛒 خرید / ورود انبار", "inventory"),
+        ("sales", "💰 فروش", "sales"),
+        ("reports", "📊 گزارش‌ها", "reports"),
+        ("settings", "⚙️ تنظیمات", "settings"),
     ]
 
     _PERMISSION_ALIASES = {
         "products": "inventory",
         "customers": "sales",
         "invoices": "sales",
+        "purchases": "inventory",
     }
 
     def __init__(self, current_user_id: Optional[int] = None):
@@ -104,10 +105,14 @@ class Dashboard(QWidget):
         self._drag_pos: Optional[QPoint] = None
         self._login = None
         self._page_cache: dict = {}  # کش صفحات برای دسترسی آسان
+        self._current_page_key: str = "home"
 
         self._setup_ui()
         self._connect_signals()
         self._apply_styles()
+
+        # انتخاب صفحه پیش‌فرض
+        self._select_first_page()
 
     # ============================================================ UI SETUP
     def _setup_ui(self) -> None:
@@ -145,8 +150,7 @@ class Dashboard(QWidget):
 
     def _connect_signals(self) -> None:
         """اتصال سیگنال‌های بین صفحات."""
-        # اتصال سیگنال بین خرید و انبار پس از ساخته شدن صفحات
-        # این کار در _build_sidebar انجام می‌شود چون صفحات در آنجا ساخته می‌شوند
+        # اتصال سیگنال‌ها پس از ساخت صفحات در _build_sidebar انجام می‌شود
 
     # ============================================================ USER INFO
     def _current_user(self) -> dict:
@@ -261,28 +265,36 @@ class Dashboard(QWidget):
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            btn.clicked.connect(lambda checked=False, idx=index: self.stack.setCurrentIndex(idx))
+            btn.clicked.connect(
+                lambda checked=False, idx=index, k=key: self._on_menu_clicked(idx, k)
+            )
             self.menu_group.addButton(btn)
             lay.addWidget(btn)
 
         lay.addStretch(1)
 
         # دکمه خروج
-        logout = QPushButton("  خروج از حساب", objectName="logoutBtn")
+        logout = QPushButton("  🚪 خروج از حساب", objectName="logoutBtn")
         logout.setIcon(create_svg_icon(ICONS["logout"], "#ffffff", 20))
         logout.setIconSize(QSize(20, 20))
         logout.setCursor(Qt.PointingHandCursor)
         logout.clicked.connect(self._logout)
         lay.addWidget(logout)
 
-        # انتخاب اولین آیتم
-        if self.menu_group.buttons():
-            self.menu_group.buttons()[0].setChecked(True)
-
         # اتصال سیگنال‌های بین صفحات پس از ساخت
         self._connect_page_signals()
 
         return sidebar
+
+    def _on_menu_clicked(self, index: int, key: str) -> None:
+        """مدیریت کلیک روی آیتم منو."""
+        self.stack.setCurrentIndex(index)
+        self._current_page_key = key
+
+    def _select_first_page(self) -> None:
+        """انتخاب اولین صفحه قابل دسترس."""
+        if self.menu_group.buttons():
+            self.menu_group.buttons()[0].setChecked(True)
 
     def _connect_page_signals(self) -> None:
         """اتصال سیگنال‌های بین صفحات مختلف."""
@@ -293,18 +305,36 @@ class Dashboard(QWidget):
         # اتصال خرید → انبار
         if purchases_page and inventory_page:
             if hasattr(purchases_page, "inventory_updated") and hasattr(inventory_page, "refresh"):
-                purchases_page.inventory_updated.connect(inventory_page.refresh)
-                print("✅ Signal 'inventory_updated' connected to InventoryPage.refresh")
+                try:
+                    purchases_page.inventory_updated.connect(inventory_page.refresh)
+                    print("✅ Signal 'inventory_updated' connected to InventoryPage.refresh")
+                except Exception as e:
+                    print(f"⚠️ Error connecting purchases signal: {e}")
 
-        # اتصال فروش → انبار و داشبورد
+        # اتصال فروش → انبار
         if sales_page and inventory_page:
             if hasattr(sales_page, "inventory_updated") and hasattr(inventory_page, "refresh"):
-                sales_page.inventory_updated.connect(inventory_page.refresh)
-                print("✅ Signal 'inventory_updated' connected from SalesPage")
+                try:
+                    sales_page.inventory_updated.connect(inventory_page.refresh)
+                    print("✅ Signal 'inventory_updated' connected from SalesPage")
+                except Exception as e:
+                    print(f"⚠️ Error connecting sales signal: {e}")
 
             # اتصال فروش به بروزرسانی داشبورد
             if hasattr(sales_page, "data_changed"):
-                sales_page.data_changed.connect(self._on_dashboard_data_changed)
+                try:
+                    sales_page.data_changed.connect(self._on_dashboard_data_changed)
+                    print("✅ Signal 'data_changed' connected from SalesPage")
+                except Exception as e:
+                    print(f"⚠️ Error connecting data_changed signal: {e}")
+
+        # اتصال خرید به بروزرسانی داشبورد
+        if purchases_page and hasattr(purchases_page, "data_changed"):
+            try:
+                purchases_page.data_changed.connect(self._on_dashboard_data_changed)
+                print("✅ Signal 'data_changed' connected from PurchasesPage")
+            except Exception as e:
+                print(f"⚠️ Error connecting purchases data_changed signal: {e}")
 
     # ============================================================ PAGES
     def _create_page(self, key: str, label: str) -> QWidget:
@@ -338,27 +368,117 @@ class Dashboard(QWidget):
                 return SettingsPage()
 
         except ImportError as exc:
-            return self._placeholder(f"خطا در بارگذاری صفحه {label}:\n{exc}")
+            return self._placeholder(f"❌ خطا در بارگذاری صفحه {label}:\n{exc}")
         except Exception as exc:
-            return self._placeholder(f"خطای غیرمنتظره در صفحه {label}:\n{exc}")
+            return self._placeholder(f"❌ خطای غیرمنتظره در صفحه {label}:\n{exc}")
 
-        return self._placeholder(f"صفحه «{label}» هنوز آماده نشده است.")
+        return self._placeholder(f"📄 صفحه «{label}» هنوز آماده نشده است.")
 
     def _create_home_page(self) -> QWidget:
         """ساخت صفحه اصلی داشبورد."""
         page = QWidget()
+        page.setObjectName("homePage")
+
         lay = QVBoxLayout(page)
+        lay.setContentsMargins(30, 30, 30, 30)
+        lay.setSpacing(20)
 
         # پیام خوش‌آمدگویی
         welcome = QLabel(
-            f"خوش آمدید، {self._display_name()} عزیز!\n"
-            "از منوی کنار برای دسترسی به بخش‌های سیستم استفاده کنید.",
-            objectName="placeholderLabel"
+            f"🌟 خوش آمدید، {self._display_name()} عزیز!\n\n"
+            "از منوی کنار برای دسترسی به بخش‌های سیستم استفاده کنید.\n"
+            "📊 برای مشاهده گزارش‌ها و آمار به بخش «گزارش‌ها» مراجعه کنید.",
+            objectName="welcomeLabel"
         )
         welcome.setAlignment(Qt.AlignCenter)
+        welcome.setWordWrap(True)
         lay.addWidget(welcome)
 
+        # آمار سریع
+        stats_frame = QFrame(objectName="statsFrame")
+        stats_layout = QHBoxLayout(stats_frame)
+        stats_layout.setSpacing(15)
+
+        stats_data = self._get_quick_stats()
+        for title, value, icon, color in stats_data:
+            card = self._create_quick_stat_card(icon, title, value, color)
+            stats_layout.addWidget(card)
+
+        lay.addWidget(stats_frame)
+
         return page
+
+    def _get_quick_stats(self) -> list:
+        """دریافت آمار سریع برای صفحه اصلی."""
+        try:
+            from app.database.connection import get_connection
+            with get_connection() as conn:
+                # تعداد محصولات
+                products = conn.execute("SELECT COUNT(*) as count FROM products").fetchone()
+                product_count = products["count"] if products else 0
+
+                # تعداد مشتریان
+                customers = conn.execute("SELECT COUNT(*) as count FROM customers").fetchone()
+                customer_count = customers["count"] if customers else 0
+
+                # تعداد فاکتورها
+                invoices = conn.execute("SELECT COUNT(*) as count FROM invoices").fetchone()
+                invoice_count = invoices["count"] if invoices else 0
+
+                # کل فروش
+                sales = conn.execute("SELECT COALESCE(SUM(total), 0) as total FROM invoices").fetchone()
+                total_sales = sales["total"] if sales else 0
+
+                return [
+                    ("📦", "کل کالاها", str(product_count), "#5b3ec8"),
+                    ("👥", "مشتریان", str(customer_count), "#2e7d32"),
+                    ("📄", "فاکتورها", str(invoice_count), "#c62828"),
+                    ("💰", "کل فروش", f"{total_sales:,.0f}", "#e65100"),
+                ]
+        except Exception:
+            return [
+                ("📦", "کل کالاها", "۰", "#5b3ec8"),
+                ("👥", "مشتریان", "۰", "#2e7d32"),
+                ("📄", "فاکتورها", "۰", "#c62828"),
+                ("💰", "کل فروش", "۰", "#e65100"),
+            ]
+
+    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str) -> QFrame:
+        """ساخت کارت آمار سریع."""
+        card = QFrame()
+        card.setObjectName("quickStatCard")
+        card.setStyleSheet(f"""
+            #quickStatCard {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ffffff, stop:1 #f8f6ff);
+                border: 2px solid {color}33;
+                border-radius: 16px;
+                padding: 16px;
+                min-height: 80px;
+                min-width: 120px;
+            }}
+            #quickStatCard:hover {{
+                border-color: {color};
+            }}
+        """)
+
+        layout = QVBoxLayout(card)
+        layout.setSpacing(4)
+
+        lbl_icon = QLabel(icon)
+        lbl_icon.setStyleSheet("font-size: 24px;")
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
+
+        lbl_value = QLabel(value)
+        lbl_value.setStyleSheet("color: #1a1a2e; font-size: 20px; font-weight: bold;")
+
+        layout.addWidget(lbl_icon)
+        layout.addWidget(lbl_title)
+        layout.addWidget(lbl_value)
+
+        return card
 
     @staticmethod
     def _placeholder(text: str) -> QWidget:
@@ -381,13 +501,31 @@ class Dashboard(QWidget):
         """بروزرسانی صفحه انبار."""
         inventory_page = self._page_cache.get("inventory")
         if inventory_page and hasattr(inventory_page, "refresh"):
-            inventory_page.refresh()
+            try:
+                inventory_page.refresh()
+                print("🔄 Inventory page refreshed")
+            except Exception as e:
+                print(f"⚠️ Error refreshing inventory: {e}")
 
     def _refresh_home_page_stats(self) -> None:
         """بروزرسانی آمار صفحه اصلی."""
         home_page = self._page_cache.get("home")
         if home_page and hasattr(home_page, "reload_stats"):
-            home_page.reload_stats()
+            try:
+                home_page.reload_stats()
+                print("🔄 Home page stats refreshed")
+            except Exception as e:
+                print(f"⚠️ Error refreshing home stats: {e}")
+
+    def refresh_current_page(self) -> None:
+        """بروزرسانی صفحه جاری."""
+        current_page = self.stack.currentWidget()
+        if current_page and hasattr(current_page, "refresh"):
+            try:
+                current_page.refresh()
+                print(f"🔄 Current page ({self._current_page_key}) refreshed")
+            except Exception as e:
+                print(f"⚠️ Error refreshing current page: {e}")
 
     # ============================================================ LOGOUT
     def _logout(self) -> None:
@@ -501,5 +639,15 @@ class Dashboard(QWidget):
             #placeholderLabel {
                 color: #4d3a78;
                 font-size: 17px;
+            }
+            #welcomeLabel {
+                color: #4d3a78;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 20px;
+            }
+            #statsFrame {
+                background: transparent;
+                padding: 10px;
             }
         """)

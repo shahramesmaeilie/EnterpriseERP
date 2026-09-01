@@ -1,31 +1,31 @@
-import sys
 import ctypes
 from pathlib import Path
+import sys
 
-from PySide6.QtCore import Qt, QRegularExpression, QPoint
-from PySide6.QtGui import QIcon, QRegularExpressionValidator
+from PySide6.QtCore import QPoint, QRegularExpression, Qt
+from PySide6.QtGui import QFont, QIcon, QRegularExpressionValidator
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
-    QWidget,
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QCheckBox,
-    QVBoxLayout,
-    QHBoxLayout,
-    QFrame,
     QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-from app.core.session import Session
 from app.services.auth_service import login
 
-# app/ (یک پوشه بالاتر از ui/)
+# -----------------------------------------------------------------------------
+# مسیرها و ثوابت
+# -----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[1]
 IMAGE_DIR = BASE_DIR / "assets" / "images"
 ICON_DIR = BASE_DIR / "assets" / "icons"
 
-# شناسه چیدمان صفحه‌کلید English (US) در ویندوز
 _EN_US_LAYOUT = "00000409"
 _KLF_ACTIVATE = 0x00000001
 
@@ -39,24 +39,23 @@ def force_english_layout():
             pass
 
 
+# -----------------------------------------------------------------------------
+# ویجت‌های سفارشی
+# -----------------------------------------------------------------------------
 class EnglishLineEdit(QLineEdit):
-    """فیلد ورودی که فقط کاراکترهای انگلیسی/ASCII می‌پذیرد.
-
-    - Validator هر کاراکتر غیر ASCII (از جمله فارسی) را رد می‌کند،
-      حتی هنگام Paste.
-    - در ویندوز، با هر فوکوس و هر کلید، چیدمان به انگلیسی برمی‌گردد
-      تا تغییر به فارسی عملاً ممکن نباشد.
-    """
+    """فیلد ورودی که فقط کاراکترهای انگلیسی/ASCII می‌پذیرد."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setInputMethodHints(Qt.ImhLatinOnly | Qt.ImhNoPredictiveText)
+        self.setInputMethodHints(
+            Qt.InputMethodHint.ImhLatinOnly
+            | Qt.InputMethodHint.ImhNoPredictiveText
+        )
         self.setValidator(
             QRegularExpressionValidator(QRegularExpression(r"[\x20-\x7E]*"), self)
         )
-        # تایپ انگلیسی باید چپ‌به‌راست نمایش داده شود
-        self.setLayoutDirection(Qt.LeftToRight)
-        self.setAlignment(Qt.AlignLeft)
+        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
     def focusInEvent(self, event):
         force_english_layout()
@@ -68,35 +67,36 @@ class EnglishLineEdit(QLineEdit):
 
 
 class EnterPushButton(QPushButton):
-    """دکمه‌ای که با Enter هم کلیک می‌شود، نه فقط Space."""
+    """دکمه‌ای که علاوه بر کلیک، با کلید Enter نیز فعال می‌شود."""
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.click()
         else:
             super().keyPressEvent(event)
 
 
+# -----------------------------------------------------------------------------
+# پنجره لاگین
+# -----------------------------------------------------------------------------
 class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Enterprise ERP — ورود")
         self.setFixedSize(950, 600)
 
-        # پنجره بدون قاب با پس‌زمینه شفاف تا گوشه‌های گرد دیده شوند
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # پنجره بدون قاب با پس‌زمینه شفاف
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         ico_path = IMAGE_DIR / "Enterprise.ico"
         if ico_path.exists():
             self.setWindowIcon(QIcon(str(ico_path)))
 
-        # برای جابه‌جایی پنجره با درگ ماوس
         self._drag_offset: QPoint | None = None
-
         self._build_ui()
 
-    # ---------- ساخت رابط ----------
+    # ---------- ساخت رابط کاربری ----------
 
     def _build_ui(self):
         root = QHBoxLayout(self)
@@ -108,34 +108,86 @@ class LoginWindow(QWidget):
 
         self.setStyleSheet(self._stylesheet())
 
-        # ترتیب فوکوس با Tab و فوکوس اولیه
+        # ترتیب فوکوس و فوکوس اولیه
         self.setTabOrder(self.username_input, self.password_input)
-        self.setTabOrder(self.password_input, self.login_button)
+        self.setTabOrder(self.password_input, self.show_password)
+        self.setTabOrder(self.show_password, self.login_button)
         self.username_input.setFocus()
 
     def _build_left_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("leftPanel")
 
-        layout = QVBoxLayout(panel)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(18)
+        outer_layout = QVBoxLayout(panel)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
+        # --- نوار دکمه‌های کنترل پنجره در بالا-چپ ---
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(18, 16, 0, 0)
+        top_bar.setSpacing(8)
+
+        btn_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
+
+        # ۱. دکمه بستن (✕)
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setObjectName("ctrlCloseBtn")
+        self.close_btn.setFont(btn_font)
+        self.close_btn.setFixedSize(32, 28)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.close_btn.clicked.connect(self.close)
+        top_bar.addWidget(self.close_btn)
+
+        # ۲. دکمه تغییر اندازه پنجره (□)
+        self.max_btn = QPushButton("□")
+        self.max_btn.setObjectName("ctrlMaxBtn")
+        self.max_btn.setFont(btn_font)
+        self.max_btn.setFixedSize(32, 28)
+        self.max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.max_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.max_btn.clicked.connect(self._toggle_maximize)
+        top_bar.addWidget(self.max_btn)
+
+        # ۳. دکمه کوچک‌کردن / Minimize (–)
+        self.min_btn = QPushButton("–")
+        self.min_btn.setObjectName("ctrlMinBtn")
+        self.min_btn.setFont(btn_font)
+        self.min_btn.setFixedSize(32, 28)
+        self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.min_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.min_btn.clicked.connect(self.showMinimized)
+        top_bar.addWidget(self.min_btn)
+
+        top_bar.addStretch()
+        outer_layout.addLayout(top_bar)
+
+        # --- بخش میانی (لوگو و متون) ---
+        center_layout = QVBoxLayout()
+        center_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_layout.setSpacing(16)
+
+        # لوگوی SVG
         svg_path = IMAGE_DIR / "Enterprise.svg"
         if svg_path.exists():
             logo = QSvgWidget(str(svg_path))
+            logo.setObjectName("appLogo")
             logo.setFixedSize(160, 160)
-            layout.addWidget(logo, alignment=Qt.AlignCenter)
+            center_layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # عنوان برنامه
         title = QLabel("Enterprise ERP")
         title.setObjectName("appTitle")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_layout.addWidget(title)
 
+        # زیرعنوان فارسی
         subtitle = QLabel("سامانه یکپارچه مدیریت کسب‌وکار")
         subtitle.setObjectName("appSubtitle")
-        subtitle.setAlignment(Qt.AlignCenter)
-        layout.addWidget(subtitle)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_layout.addWidget(subtitle)
+
+        outer_layout.addLayout(center_layout, stretch=1)
 
         return panel
 
@@ -147,76 +199,61 @@ class LoginWindow(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # --- نوار بالایی با دکمه بستن (چون پنجره بدون قاب است) ---
-        top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(0, 10, 14, 0)
-        top_bar.addStretch()
-
-        close_button = QPushButton("✕")
-        close_button.setObjectName("closeButton")
-        close_button.setFixedSize(30, 30)
-        close_button.setCursor(Qt.PointingHandCursor)
-        close_button.setFocusPolicy(Qt.NoFocus)
-        close_button.clicked.connect(self.close)
-        top_bar.addWidget(close_button)
-
-        outer.addLayout(top_bar)
-
         center = QVBoxLayout()
-        center.setAlignment(Qt.AlignCenter)
+        center.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # کارت فرم ورود
         card = QFrame()
         card.setObjectName("loginCard")
-        card.setFixedSize(360, 430)
-        # فقط کارت ورود RTL می‌شود تا محتوای فارسی درست چیده شود
-        card.setLayoutDirection(Qt.RightToLeft)
+        card.setFixedSize(360, 440)
+        card.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(28, 28, 28, 28)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
         heading = QLabel("ورود به سیستم")
         heading.setObjectName("cardHeading")
-        heading.setAlignment(Qt.AlignCenter)
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(heading)
 
-        layout.addSpacing(8)
+        layout.addSpacing(10)
 
-        # --- نام کاربری (فقط انگلیسی) ---
+        # نام کاربری
         layout.addWidget(QLabel("نام کاربری"))
         self.username_input = EnglishLineEdit()
         self.username_input.setPlaceholderText("Username")
         user_icon = ICON_DIR / "user.svg"
         if user_icon.exists():
             self.username_input.addAction(
-                QIcon(str(user_icon)), QLineEdit.LeadingPosition
+                QIcon(str(user_icon)), QLineEdit.ActionPosition.LeadingPosition
             )
         layout.addWidget(self.username_input)
 
-        # --- رمز عبور (فقط انگلیسی) ---
+        # رمز عبور
         layout.addWidget(QLabel("رمز عبور"))
         self.password_input = EnglishLineEdit()
         self.password_input.setPlaceholderText("Password")
-        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         lock_icon = ICON_DIR / "lock.svg"
         if lock_icon.exists():
             self.password_input.addAction(
-                QIcon(str(lock_icon)), QLineEdit.LeadingPosition
+                QIcon(str(lock_icon)), QLineEdit.ActionPosition.LeadingPosition
             )
         layout.addWidget(self.password_input)
 
-        # --- نمایش رمز ---
+        # نمایش رمز
         self.show_password = QCheckBox("نمایش رمز عبور")
         self.show_password.toggled.connect(self._toggle_password)
         layout.addWidget(self.show_password)
 
         layout.addSpacing(10)
 
-        # --- دکمه ورود (با پشتیبانی Enter) ---
+        # دکمه ورود
         self.login_button = EnterPushButton("ورود")
         self.login_button.setObjectName("loginButton")
         self.login_button.setFixedHeight(42)
-        self.login_button.setCursor(Qt.PointingHandCursor)
+        self.login_button.setCursor(Qt.CursorShape.PointingHandCursor)
         login_icon = ICON_DIR / "login.svg"
         if login_icon.exists():
             self.login_button.setIcon(QIcon(str(login_icon)))
@@ -225,27 +262,32 @@ class LoginWindow(QWidget):
 
         layout.addStretch()
 
-        # زنجیره‌ی Enter:
-        # نام کاربری → رمز عبور → دکمه ورود → کلیک
+        # اتصال کلید اینتر
         self.username_input.returnPressed.connect(self.password_input.setFocus)
-        self.password_input.returnPressed.connect(self.login_button.setFocus)
+        self.password_input.returnPressed.connect(self.handle_login)
 
         center.addWidget(card)
         outer.addLayout(center, stretch=1)
 
         return panel
 
-    # ---------- جابه‌جایی پنجره بدون قاب با درگ ----------
+    # ---------- جابه‌جایی و کنترل پنجره ----------
+
+    def _toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self._drag_offset = (
                 event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             )
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._drag_offset is not None and event.buttons() & Qt.LeftButton:
+        if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_offset)
         super().mouseMoveEvent(event)
 
@@ -257,12 +299,16 @@ class LoginWindow(QWidget):
 
     def _toggle_password(self, checked: bool):
         self.password_input.setEchoMode(
-            QLineEdit.Normal if checked else QLineEdit.Password
+            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
         )
 
     def handle_login(self):
         username = self.username_input.text().strip()
         password = self.password_input.text()
+
+        if not username or not password:
+            QMessageBox.warning(self, "خطا", "لطفاً نام کاربری و رمز عبور را وارد کنید.")
+            return
 
         success, message = login(username, password)
 
@@ -273,28 +319,21 @@ class LoginWindow(QWidget):
         self.open_dashboard()
 
     def open_dashboard(self):
-        # import داخل تابع تا از circular import جلوگیری شود
-        # (dashboard.py خودش LoginWindow را import می‌کند)
         from app.ui.dashboard import Dashboard
 
-        # حتماً روی self نگه داشته شود؛ در غیر این صورت پنجره
-        # بلافاصله توسط garbage collector حذف می‌شود
         self.dashboard = Dashboard()
         self.dashboard.showMaximized()
         self.close()
 
-    # ---------- استایل ----------
+    # ---------- استایل (QSS) ----------
 
     @staticmethod
     def _stylesheet() -> str:
         return """
-        /* گوشه‌های گرد پنجره: چون Qt فرزندان را به شعاع والد برش نمی‌دهد،
-           شعاع مستقیماً روی پنل چپ (گوشه‌های چپ) و پنل راست (گوشه‌های راست)
-           اعمال شده است. */
         #leftPanel {
             background: qlineargradient(
                 x1:0, y1:0, x2:1, y2:1,
-                stop:0 #b39ddb, stop:1 #9575cd
+                stop:0 #a484d8, stop:1 #8e6ecc
             );
             border-top-left-radius: 24px;
             border-bottom-left-radius: 24px;
@@ -304,27 +343,62 @@ class LoginWindow(QWidget):
             border-top-right-radius: 24px;
             border-bottom-right-radius: 24px;
         }
+        
+        /* شفافیت متون و لوگوی پنل چپ */
+        #leftPanel QLabel, #leftPanel QSvgWidget {
+            background: transparent;
+            border: none;
+        }
+
         #appTitle {
             color: #ffffff;
-            font-size: 30px;
+            font-size: 28px;
             font-weight: bold;
         }
         #appSubtitle {
-            color: #ede7f6;
-            font-size: 14px;
+            color: #f1ebfa;
+            font-size: 13px;
         }
-        #closeButton {
-            background: transparent;
-            color: #7e57c2;
-            border: none;
-            border-radius: 15px;
-            font-size: 14px;
-            font-weight: bold;
+
+        /* --- استایل اختصاصی و پرقدرت دکمه‌های کنترل پنجره --- */
+        #leftPanel QPushButton#ctrlCloseBtn,
+        #leftPanel QPushButton#ctrlMaxBtn,
+        #leftPanel QPushButton#ctrlMinBtn {
+            background-color: #ffffff !important;
+            color: #4b367c !important;
+            border: 1px solid #dcd1f3 !important;
+            border-radius: 8px !important;
+            padding: 0px !important;
+            margin: 0px !important;
+            font-size: 13px !important;
+            font-weight: bold !important;
+            text-align: center !important;
         }
-        #closeButton:hover {
-            background: #e57373;
-            color: #ffffff;
+
+        #leftPanel QPushButton#ctrlMaxBtn:hover,
+        #leftPanel QPushButton#ctrlMinBtn:hover {
+            background-color: #eee7fa !important;
+            color: #2e1762 !important;
+            border-color: #bfa8ea !important;
         }
+
+        #leftPanel QPushButton#ctrlMaxBtn:pressed,
+        #leftPanel QPushButton#ctrlMinBtn:pressed {
+            background-color: #dcd0f4 !important;
+        }
+
+        /* حالت هاور دکمه بستن به رنگ قرمز ملایم */
+        #leftPanel QPushButton#ctrlCloseBtn:hover {
+            background-color: #ef5350 !important;
+            border-color: #ef5350 !important;
+            color: #ffffff !important;
+        }
+        #leftPanel QPushButton#ctrlCloseBtn:pressed {
+            background-color: #d32f2f !important;
+            color: #ffffff !important;
+        }
+
+        /* کارت فرم ورود */
         #loginCard {
             background: #ffffff;
             border-radius: 18px;
