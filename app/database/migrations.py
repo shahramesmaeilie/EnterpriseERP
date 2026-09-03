@@ -36,6 +36,18 @@ REQUIRED_TABLES: dict[str, str] = {
             unit_price REAL NOT NULL
         )
     """,
+    # جدول حسابداری به صورت مجزا و صحیح اضافه شد
+    "accounting_docs": """
+        CREATE TABLE IF NOT EXISTS accounting_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_number TEXT,
+            date TEXT,
+            description TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """,
 }
 
 

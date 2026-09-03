@@ -18,6 +18,7 @@ PAGE_PERMISSIONS = [
     ("products", "کالاها"),
     ("customers", "مشتریان"),
     ("invoices", "فاکتورها"),
+    ("accounting", "حسابداری"),
     ("reports", "گزارش‌ها"),
 ]
 
@@ -161,6 +162,14 @@ class UsersPage(QWidget):
         try:
             rows = conn.execute(
                 "SELECT id, username, full_name, email, role, permissions, is_active "
+                "FROM users WHERE username LIKE ? OR full_name LIKE ? OR email LIKE ? "
+                "ORDER BY id",
+                (term, term, term),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # اگر ستون permissions هنوز ساخته نشده باشد
+            rows = conn.execute(
+                "SELECT id, username, full_name, email, role, is_active "
                 "FROM users WHERE username LIKE ? OR full_name LIKE ? OR email LIKE ? "
                 "ORDER BY id",
                 (term, term, term),
