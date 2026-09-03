@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 import ctypes
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import QPoint, QRegularExpression, Qt
-from PySide6.QtGui import QFont, QIcon, QRegularExpressionValidator
+from PySide6.QtCore import QByteArray, QPoint, QRegularExpression, Qt
+from PySide6.QtGui import QFont, QIcon, QPixmap, QPainter, QColor, QRegularExpressionValidator
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -15,13 +17,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QSizePolicy
 )
 
 from app.services.auth_service import login
 
-# -----------------------------------------------------------------------------
-# مسیرها و ثوابت
-# -----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[1]
 IMAGE_DIR = BASE_DIR / "assets" / "images"
 ICON_DIR = BASE_DIR / "assets" / "icons"
@@ -29,9 +29,38 @@ ICON_DIR = BASE_DIR / "assets" / "icons"
 _EN_US_LAYOUT = "00000409"
 _KLF_ACTIVATE = 0x00000001
 
+# کد SVG لوگو با رنگ سفید (Hardcoded)
+LOGO_SVG_WHITE = """
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="83" viewBox="0 0 80 83">
+<g transform="translate(0.000000,83.000000) scale(0.100000,-0.100000)"
+fill="#FFFFFF" stroke="none">
+<path d="M305 731 c-16 -10 -74 -44 -128 -76 l-99 -57 51 -29 50 -29 88 53
+c93 56 104 73 89 133 -8 29 -12 29 -51 5z"/>
+<path d="M452 738 c-7 -7 -12 -29 -12 -49 0 -37 2 -39 94 -93 l94 -56 46 26
+c41 23 59 44 38 44 -4 0 -61 32 -126 70 -64 39 -119 70 -120 70 -1 0 -7 -5
+-14 -12z"/>
+<path d="M323 538 c-40 -23 -70 -45 -67 -49 2 -4 36 -26 75 -48 l71 -41 74 42
+c41 23 74 45 74 48 0 8 -136 90 -147 90 -4 0 -40 -19 -80 -42z"/>
+<path d="M54 557 c-2 -7 -3 -76 -2 -152 3 -130 4 -140 23 -144 10 -2 34 5 52
+14 l33 18 0 95 0 94 25 -16 c24 -15 25 -15 25 2 0 12 -24 33 -70 60 -79 47
+-79 47 -86 29z"/>
+<path d="M665 527 c-40 -25 -71 -50 -73 -61 -4 -19 -3 -19 22 -3 l25 17 3 -92
+c3 -92 3 -92 35 -111 20 -11 41 -16 53 -12 19 6 20 14 20 150 0 79 -4 146 -8
+149 -4 2 -39 -14 -77 -37z"/>
+<path d="M240 376 l0 -85 68 -41 c38 -22 71 -40 75 -40 4 0 7 37 7 83 l0 83
+-67 39 c-38 22 -71 42 -75 43 -5 2 -8 -35 -8 -82z"/>
+<path d="M488 419 l-68 -40 0 -84 c0 -47 3 -85 6 -85 10 0 128 74 136 85 10
+13 10 165 1 165 -5 -1 -38 -19 -75 -41z"/>
+<path d="M153 203 c-24 -13 -43 -28 -43 -31 0 -11 263 -171 272 -166 4 3 8 29
+8 58 l0 54 -93 56 c-51 31 -95 56 -97 55 -3 -1 -24 -12 -47 -26z"/>
+<path d="M510 176 l-85 -53 -3 -62 -3 -62 34 18 c59 32 247 148 247 153 0 5
+-94 60 -101 60 -2 -1 -42 -25 -89 -54z"/>
+</g>
+</svg>
+"""
+
 
 def force_english_layout():
-    """چیدمان صفحه‌کلید را به انگلیسی (US) برمی‌گرداند — فقط در ویندوز."""
     if sys.platform == "win32":
         try:
             ctypes.windll.user32.LoadKeyboardLayoutW(_EN_US_LAYOUT, _KLF_ACTIVATE)
@@ -39,12 +68,18 @@ def force_english_layout():
             pass
 
 
-# -----------------------------------------------------------------------------
-# ویجت‌های سفارشی
-# -----------------------------------------------------------------------------
-class EnglishLineEdit(QLineEdit):
-    """فیلد ورودی که فقط کاراکترهای انگلیسی/ASCII می‌پذیرد."""
+def create_white_logo_pixmap(size: int = 160) -> QPixmap:
+    """ساخت لوگوی سفید به صورت برنامه‌نویسی شده"""
+    renderer = QSvgRenderer(QByteArray(LOGO_SVG_WHITE.encode("utf-8")))
+    pixmap = QPixmap(size, size)
+    pixmap.fill(QColor(0, 0, 0, 0))  # پس‌زمینه شفاف
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return pixmap
 
+
+class EnglishLineEdit(QLineEdit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setInputMethodHints(
@@ -67,8 +102,6 @@ class EnglishLineEdit(QLineEdit):
 
 
 class EnterPushButton(QPushButton):
-    """دکمه‌ای که علاوه بر کلیک، با کلید Enter نیز فعال می‌شود."""
-
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.click()
@@ -76,16 +109,14 @@ class EnterPushButton(QPushButton):
             super().keyPressEvent(event)
 
 
-# -----------------------------------------------------------------------------
-# پنجره لاگین
-# -----------------------------------------------------------------------------
 class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Enterprise ERP — ورود")
-        self.setFixedSize(950, 600)
+        # قابل تغییر اندازه
+        self.setMinimumSize(700, 500)
+        self.resize(950, 600)
 
-        # پنجره بدون قاب با پس‌زمینه شفاف
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -96,19 +127,18 @@ class LoginWindow(QWidget):
         self._drag_offset: QPoint | None = None
         self._build_ui()
 
-    # ---------- ساخت رابط کاربری ----------
-
     def _build_ui(self):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_left_panel(), stretch=1)
-        root.addWidget(self._build_right_panel(), stretch=1)
+        left_panel = self._build_left_panel()
+        right_panel = self._build_right_panel()
 
-        self.setStyleSheet(self._stylesheet())
+        # در RTL: پنل چپ راست، پنل راست چپ
+        root.addWidget(left_panel, 45)
+        root.addWidget(right_panel, 55)
 
-        # ترتیب فوکوس و فوکوس اولیه
         self.setTabOrder(self.username_input, self.password_input)
         self.setTabOrder(self.password_input, self.show_password)
         self.setTabOrder(self.show_password, self.login_button)
@@ -117,19 +147,18 @@ class LoginWindow(QWidget):
     def _build_left_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("leftPanel")
+        panel.setMinimumWidth(250)
 
         outer_layout = QVBoxLayout(panel)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # --- نوار دکمه‌های کنترل پنجره در بالا-چپ ---
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(18, 16, 0, 0)
         top_bar.setSpacing(8)
 
         btn_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
 
-        # ۱. دکمه بستن (✕)
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("ctrlCloseBtn")
         self.close_btn.setFont(btn_font)
@@ -139,7 +168,6 @@ class LoginWindow(QWidget):
         self.close_btn.clicked.connect(self.close)
         top_bar.addWidget(self.close_btn)
 
-        # ۲. دکمه تغییر اندازه پنجره (□)
         self.max_btn = QPushButton("□")
         self.max_btn.setObjectName("ctrlMaxBtn")
         self.max_btn.setFont(btn_font)
@@ -149,7 +177,6 @@ class LoginWindow(QWidget):
         self.max_btn.clicked.connect(self._toggle_maximize)
         top_bar.addWidget(self.max_btn)
 
-        # ۳. دکمه کوچک‌کردن / Minimize (–)
         self.min_btn = QPushButton("–")
         self.min_btn.setObjectName("ctrlMinBtn")
         self.min_btn.setFont(btn_font)
@@ -162,26 +189,22 @@ class LoginWindow(QWidget):
         top_bar.addStretch()
         outer_layout.addLayout(top_bar)
 
-        # --- بخش میانی (لوگو و متون) ---
         center_layout = QVBoxLayout()
         center_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         center_layout.setSpacing(16)
 
-        # لوگوی SVG
-        svg_path = IMAGE_DIR / "Enterprise.svg"
-        if svg_path.exists():
-            logo = QSvgWidget(str(svg_path))
-            logo.setObjectName("appLogo")
-            logo.setFixedSize(160, 160)
-            center_layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignCenter)
+        # لوگوی سفید (به جای فایل SVG)
+        logo = QLabel()
+        logo.setPixmap(create_white_logo_pixmap(160))
+        logo.setFixedSize(160, 160)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_layout.addWidget(logo)
 
-        # عنوان برنامه
         title = QLabel("Enterprise ERP")
         title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         center_layout.addWidget(title)
 
-        # زیرعنوان فارسی
         subtitle = QLabel("سامانه یکپارچه مدیریت کسب‌وکار")
         subtitle.setObjectName("appSubtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -194,6 +217,7 @@ class LoginWindow(QWidget):
     def _build_right_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("rightPanel")
+        panel.setMinimumWidth(320)
 
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -202,10 +226,11 @@ class LoginWindow(QWidget):
         center = QVBoxLayout()
         center.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # کارت فرم ورود
         card = QFrame()
         card.setObjectName("loginCard")
-        card.setFixedSize(360, 440)
+        card.setMinimumWidth(300)
+        card.setMaximumWidth(380)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         card.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
         layout = QVBoxLayout(card)
@@ -219,7 +244,6 @@ class LoginWindow(QWidget):
 
         layout.addSpacing(10)
 
-        # نام کاربری
         layout.addWidget(QLabel("نام کاربری"))
         self.username_input = EnglishLineEdit()
         self.username_input.setPlaceholderText("Username")
@@ -230,7 +254,6 @@ class LoginWindow(QWidget):
             )
         layout.addWidget(self.username_input)
 
-        # رمز عبور
         layout.addWidget(QLabel("رمز عبور"))
         self.password_input = EnglishLineEdit()
         self.password_input.setPlaceholderText("Password")
@@ -242,14 +265,19 @@ class LoginWindow(QWidget):
             )
         layout.addWidget(self.password_input)
 
-        # نمایش رمز
         self.show_password = QCheckBox("نمایش رمز عبور")
         self.show_password.toggled.connect(self._toggle_password)
+        # اعمال فونت و رنگ هماهنگ با لیبل‌های نام کاربری و رمز عبور
+        self.show_password.setStyleSheet("""
+            QCheckBox {
+                color: #4a4458; 
+                font-size: 13px;
+            }
+        """)
         layout.addWidget(self.show_password)
 
         layout.addSpacing(10)
 
-        # دکمه ورود
         self.login_button = EnterPushButton("ورود")
         self.login_button.setObjectName("loginButton")
         self.login_button.setFixedHeight(42)
@@ -262,7 +290,6 @@ class LoginWindow(QWidget):
 
         layout.addStretch()
 
-        # اتصال کلید اینتر
         self.username_input.returnPressed.connect(self.password_input.setFocus)
         self.password_input.returnPressed.connect(self.handle_login)
 
@@ -270,8 +297,6 @@ class LoginWindow(QWidget):
         outer.addLayout(center, stretch=1)
 
         return panel
-
-    # ---------- جابه‌جایی و کنترل پنجره ----------
 
     def _toggle_maximize(self):
         if self.isMaximized():
@@ -294,8 +319,6 @@ class LoginWindow(QWidget):
     def mouseReleaseEvent(self, event):
         self._drag_offset = None
         super().mouseReleaseEvent(event)
-
-    # ---------- رفتارها ----------
 
     def _toggle_password(self, checked: bool):
         self.password_input.setEchoMode(
@@ -324,128 +347,3 @@ class LoginWindow(QWidget):
         self.dashboard = Dashboard()
         self.dashboard.showMaximized()
         self.close()
-
-    # ---------- استایل (QSS) ----------
-
-    @staticmethod
-    def _stylesheet() -> str:
-        return """
-        #leftPanel {
-            background: qlineargradient(
-                x1:0, y1:0, x2:1, y2:1,
-                stop:0 #a484d8, stop:1 #8e6ecc
-            );
-            border-top-left-radius: 24px;
-            border-bottom-left-radius: 24px;
-        }
-        #rightPanel {
-            background: #f5f2fa;
-            border-top-right-radius: 24px;
-            border-bottom-right-radius: 24px;
-        }
-        
-        /* شفافیت متون و لوگوی پنل چپ */
-        #leftPanel QLabel, #leftPanel QSvgWidget {
-            background: transparent;
-            border: none;
-        }
-
-        #appTitle {
-            color: #ffffff;
-            font-size: 28px;
-            font-weight: bold;
-        }
-        #appSubtitle {
-            color: #f1ebfa;
-            font-size: 13px;
-        }
-
-        /* --- استایل اختصاصی و پرقدرت دکمه‌های کنترل پنجره --- */
-        #leftPanel QPushButton#ctrlCloseBtn,
-        #leftPanel QPushButton#ctrlMaxBtn,
-        #leftPanel QPushButton#ctrlMinBtn {
-            background-color: #ffffff !important;
-            color: #4b367c !important;
-            border: 1px solid #dcd1f3 !important;
-            border-radius: 8px !important;
-            padding: 0px !important;
-            margin: 0px !important;
-            font-size: 13px !important;
-            font-weight: bold !important;
-            text-align: center !important;
-        }
-
-        #leftPanel QPushButton#ctrlMaxBtn:hover,
-        #leftPanel QPushButton#ctrlMinBtn:hover {
-            background-color: #eee7fa !important;
-            color: #2e1762 !important;
-            border-color: #bfa8ea !important;
-        }
-
-        #leftPanel QPushButton#ctrlMaxBtn:pressed,
-        #leftPanel QPushButton#ctrlMinBtn:pressed {
-            background-color: #dcd0f4 !important;
-        }
-
-        /* حالت هاور دکمه بستن به رنگ قرمز ملایم */
-        #leftPanel QPushButton#ctrlCloseBtn:hover {
-            background-color: #ef5350 !important;
-            border-color: #ef5350 !important;
-            color: #ffffff !important;
-        }
-        #leftPanel QPushButton#ctrlCloseBtn:pressed {
-            background-color: #d32f2f !important;
-            color: #ffffff !important;
-        }
-
-        /* کارت فرم ورود */
-        #loginCard {
-            background: #ffffff;
-            border-radius: 18px;
-            border: 1px solid #e1d8f0;
-        }
-        #cardHeading {
-            color: #5e35b1;
-            font-size: 20px;
-            font-weight: bold;
-        }
-        QLabel {
-            color: #4a4458;
-            font-size: 13px;
-        }
-        QLineEdit {
-            background: #faf8fd;
-            border: 1px solid #d1c4e9;
-            border-radius: 10px;
-            padding: 9px 12px;
-            font-size: 13px;
-        }
-        QLineEdit:focus {
-            border: 2px solid #7e57c2;
-            background: #ffffff;
-        }
-        QCheckBox {
-            color: #6f6685;
-            font-size: 12px;
-        }
-        #loginButton {
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #9575cd, stop:1 #7e57c2
-            );
-            color: #ffffff;
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: bold;
-        }
-        #loginButton:hover {
-            background: #8659c9;
-        }
-        #loginButton:focus {
-            border: 2px solid #4527a0;
-        }
-        #loginButton:pressed {
-            background: #6a3fb5;
-        }
-        """

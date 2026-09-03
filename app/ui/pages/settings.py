@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""صفحه تنظیمات برنامه - مدیریت کاربران، تنظیمات سیستم و پشتیبان‌گیری"""
+"""صفحه تنظیمات برنامه - مدیریت کاربران، تنظیمات سیستم و پشتیبان‌گیری با قابلیت تغییر زنده رنگ سراسری"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from PySide6.QtCore import Qt, QTimer, QSettings, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
@@ -36,18 +37,20 @@ except Exception:
 
 
 class SettingsPage(QWidget):
-    """صفحه تنظیمات برنامه"""
+    """صفحه تنظیمات برنامه با اعمال بلادرنگ تم به تمام صفحات"""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         
         # اتصال به سیگنال‌های theme_manager
-        theme_manager.themeChanged.connect(self._on_theme_changed)
-        theme_manager.colorsChanged.connect(self._on_colors_changed)
-        theme_manager.fontChanged.connect(self._on_font_changed)
+        if hasattr(theme_manager, "themeChanged"):
+            theme_manager.themeChanged.connect(self._on_theme_changed)
+        if hasattr(theme_manager, "colorsChanged"):
+            theme_manager.colorsChanged.connect(self._on_colors_changed)
+        if hasattr(theme_manager, "fontChanged"):
+            theme_manager.fontChanged.connect(self._on_font_changed)
         
         self._setup_ui()
-        self._apply_styles()
         self._load_settings()
 
     def _setup_ui(self):
@@ -59,12 +62,14 @@ class SettingsPage(QWidget):
         # عنوان صفحه
         title_layout = QHBoxLayout()
         title = QLabel("⚙️ تنظیمات سیستم", objectName="pageTitle")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e263d;")
         title_layout.addWidget(title)
         title_layout.addStretch()
 
         # دکمه ذخیره تنظیمات
         self.btn_save = QPushButton("💾 ذخیره تنظیمات")
         self.btn_save.setObjectName("btnPrimary")
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self._save_settings)
         title_layout.addWidget(self.btn_save)
 
@@ -76,7 +81,7 @@ class SettingsPage(QWidget):
 
         # تب‌های مختلف
         self.tabs.addTab(self._create_general_tab(), "🔧 عمومی")
-        self.tabs.addTab(self._create_appearance_tab(), "🎨 ظاهر")
+        self.tabs.addTab(self._create_appearance_tab(), "🎨 ظاهر و رنگ‌بندی")
         self.tabs.addTab(self._create_database_tab(), "💾 دیتابیس")
         self.tabs.addTab(self._create_backup_tab(), "📦 پشتیبان‌گیری")
         self.tabs.addTab(self._create_users_tab(), "👤 کاربران")
@@ -93,7 +98,7 @@ class SettingsPage(QWidget):
         general_group = QGroupBox("تنظیمات عمومی")
         general_group.setObjectName("settingsGroup")
         general_layout = QFormLayout(general_group)
-        general_layout.setSpacing(8)
+        general_layout.setSpacing(10)
 
         self.company_name = QLineEdit()
         self.company_name.setPlaceholderText("نام شرکت...")
@@ -116,7 +121,7 @@ class SettingsPage(QWidget):
         default_group = QGroupBox("تنظیمات پیش‌فرض")
         default_group.setObjectName("settingsGroup")
         default_layout = QFormLayout(default_group)
-        default_layout.setSpacing(8)
+        default_layout.setSpacing(10)
 
         self.default_discount = QDoubleSpinBox()
         self.default_discount.setRange(0, 100)
@@ -133,30 +138,27 @@ class SettingsPage(QWidget):
         return tab
 
     def _create_appearance_tab(self) -> QWidget:
-        """تب تنظیمات ظاهر"""
+        """تب تنظیمات ظاهر و انتخاب رنگ سراسری"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
-        # تم
-        theme_group = QGroupBox("تم برنامه")
+        # ۱. انتخاب حالت تیره / روشن
+        theme_group = QGroupBox("حالت تم (Theme Mode)")
         theme_group.setObjectName("settingsGroup")
         theme_layout = QVBoxLayout(theme_group)
 
         theme_radio_group = QButtonGroup(self)
-
-        theme_layout.addWidget(QLabel("انتخاب تم:"))
         theme_options_layout = QHBoxLayout()
 
-        self.theme_light = QRadioButton("☀️ روشن")
-        self.theme_dark = QRadioButton("🌙 تیره")
-        self.theme_system = QRadioButton("💻 سیستم")
+        self.theme_light = QRadioButton("☀️ روشن (Light)")
+        self.theme_dark = QRadioButton("🌙 تیره (Dark)")
+        self.theme_system = QRadioButton("💻 هماهنگ با سیستم")
 
         theme_radio_group.addButton(self.theme_light)
         theme_radio_group.addButton(self.theme_dark)
         theme_radio_group.addButton(self.theme_system)
 
-        # اتصال رویداد تغییر تم
         self.theme_light.toggled.connect(lambda: self._on_theme_radio_changed("light"))
         self.theme_dark.toggled.connect(lambda: self._on_theme_radio_changed("dark"))
         self.theme_system.toggled.connect(lambda: self._on_theme_radio_changed("system"))
@@ -164,27 +166,78 @@ class SettingsPage(QWidget):
         theme_options_layout.addWidget(self.theme_light)
         theme_options_layout.addWidget(self.theme_dark)
         theme_options_layout.addWidget(self.theme_system)
-
         theme_layout.addLayout(theme_options_layout)
-
-        # پیش‌نمایش تم
-        theme_preview = QFrame()
-        theme_preview.setObjectName("themePreview")
-        theme_preview.setFixedHeight(40)
-        theme_preview.setStyleSheet("""
-            #themePreview {
-                border: 2px solid #e8e0f5;
-                border-radius: 8px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #7657c8, stop:0.3 #5b3ec8, stop:0.6 #4d3a78, stop:1 #3a2a5a);
-            }
-        """)
-        theme_layout.addWidget(theme_preview)
 
         layout.addWidget(theme_group)
 
-        # فونت
-        font_group = QGroupBox("فونت")
+        # ۲. پالت‌های رنگی آماده سراسری
+        preset_group = QGroupBox("پالت‌های رنگی آماده سراسری (کلیک برای اعمال آنی)")
+        preset_group.setObjectName("settingsGroup")
+        preset_layout = QHBoxLayout(preset_group)
+        preset_layout.setSpacing(10)
+
+        palettes = [
+            ("بنفش سلطنتی", "#7c3aed", "#5b21b6"),
+            ("آبی نیلگون", "#0284c7", "#0369a1"),
+            ("سبز زمردی", "#059669", "#047857"),
+            ("نارنجی کهربایی", "#ea580c", "#c2410c"),
+            ("سرخ یاقوتی", "#e11d48", "#be123c"),
+            ("مشکی فیبر کربن", "#334155", "#1e293b"),
+        ]
+
+        for name, p_col, s_col in palettes:
+            p_btn = QPushButton(name)
+            p_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            p_btn.setFixedHeight(34)
+            p_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {p_col}, stop:1 {s_col});
+                    color: #ffffff;
+                    font-weight: bold;
+                    font-size: 11px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                    padding: 4px 8px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #ffffff;
+                }}
+            """)
+            p_btn.clicked.connect(lambda _, p=p_col, s=s_col: self._apply_preset_palette(p, s))
+            preset_layout.addWidget(p_btn)
+
+        layout.addWidget(preset_group)
+
+        # ۳. انتخاب رنگ اختصاصی (Color Picker)
+        color_group = QGroupBox("انتخاب رنگ‌های دلخواه (سراسری)")
+        color_group.setObjectName("settingsGroup")
+        color_layout = QGridLayout(color_group)
+        color_layout.setSpacing(10)
+
+        color_layout.addWidget(QLabel("رنگ اصلی برنامه (Primary Color):"), 0, 0)
+        self.primary_color_btn = QPushButton("انتخاب رنگ اصلی...")
+        self.primary_color_btn.setObjectName("colorPickerBtn")
+        self.primary_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.primary_color_btn.clicked.connect(lambda: self._select_color("primary"))
+        color_layout.addWidget(self.primary_color_btn, 0, 1)
+
+        color_layout.addWidget(QLabel("رنگ ثانویه / گرادینت (Secondary Color):"), 1, 0)
+        self.secondary_color_btn = QPushButton("انتخاب رنگ ثانویه...")
+        self.secondary_color_btn.setObjectName("colorPickerBtn")
+        self.secondary_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.secondary_color_btn.clicked.connect(lambda: self._select_color("secondary"))
+        color_layout.addWidget(self.secondary_color_btn, 1, 1)
+
+        # نوار پیش‌نمایش گرادینت فعلی
+        self.theme_preview = QFrame()
+        self.theme_preview.setObjectName("themePreview")
+        self.theme_preview.setFixedHeight(36)
+        color_layout.addWidget(self.theme_preview, 2, 0, 1, 2)
+
+        layout.addWidget(color_group)
+
+        # ۴. تنظیم اندازه فونت
+        font_group = QGroupBox("فونت و تایپوگرافی")
         font_group.setObjectName("settingsGroup")
         font_layout = QHBoxLayout(font_group)
 
@@ -194,42 +247,22 @@ class SettingsPage(QWidget):
         self.font_size.setSuffix(" pt")
         self.font_size.valueChanged.connect(self._on_font_size_changed)
 
-        font_layout.addWidget(QLabel("سایز فونت:"))
+        font_layout.addWidget(QLabel("سایز فونت سراسری:"))
         font_layout.addWidget(self.font_size)
         font_layout.addStretch()
 
-        self.btn_font = QPushButton("انتخاب فونت...")
+        self.btn_font = QPushButton("انتخاب قلم (Font)...")
         self.btn_font.setObjectName("btnSecondary")
+        self.btn_font.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_font.clicked.connect(self._select_font)
         font_layout.addWidget(self.btn_font)
 
         layout.addWidget(font_group)
 
-        # رنگ‌ها
-        color_group = QGroupBox("رنگ‌ها")
-        color_group.setObjectName("settingsGroup")
-        color_layout = QGridLayout(color_group)
-        color_layout.setSpacing(8)
-
-        color_layout.addWidget(QLabel("رنگ اصلی:"), 0, 0)
-        self.primary_color_btn = QPushButton()
-        self.primary_color_btn.setObjectName("colorPickerBtn")
-        self.primary_color_btn.setStyleSheet(f"background-color: {theme_manager.get_primary_color()}; border-radius: 8px; min-height: 30px;")
-        self.primary_color_btn.clicked.connect(lambda: self._select_color("primary"))
-        color_layout.addWidget(self.primary_color_btn, 0, 1)
-
-        color_layout.addWidget(QLabel("رنگ ثانویه:"), 1, 0)
-        self.secondary_color_btn = QPushButton()
-        self.secondary_color_btn.setObjectName("colorPickerBtn")
-        self.secondary_color_btn.setStyleSheet(f"background-color: {theme_manager.get_secondary_color()}; border-radius: 8px; min-height: 30px;")
-        self.secondary_color_btn.clicked.connect(lambda: self._select_color("secondary"))
-        color_layout.addWidget(self.secondary_color_btn, 1, 1)
-
-        layout.addWidget(color_group)
-
-        # دکمه بازنشانی
-        reset_btn = QPushButton("🔄 بازنشانی به تنظیمات پیش‌فرض")
+        # ۵. بازنشانی
+        reset_btn = QPushButton("🔄 بازنشانی تم و رنگ‌ها به حالت اولیه")
         reset_btn.setObjectName("btnSecondary")
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         reset_btn.clicked.connect(self._reset_appearance)
         layout.addWidget(reset_btn)
 
@@ -392,39 +425,97 @@ class SettingsPage(QWidget):
         title = QLabel("📱 Enterprise ERP")
         title.setObjectName("aboutTitle")
         title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #7c3aed;")
         layout.addWidget(title)
 
-        version = QLabel("نسخه 2.0.0")
+        version = QLabel("نسخه 2.5.0 — تم پویا و هوشمند")
         version.setObjectName("aboutVersion")
         version.setAlignment(Qt.AlignCenter)
         layout.addWidget(version)
 
         desc = QLabel(
-            "سیستم مدیریت منابع سازمانی (ERP)\n"
-            "توسعه یافته با Python و PySide6\n\n"
-            "© 2024 تمامی حقوق محفوظ است."
+            "سیستم یکپارچه مدیریت منابع سازمانی (ERP)\n"
+            "توسعه‌یافته با Python و فریم‌ورک قدرتمند PySide6\n\n"
+            "© تمامی حقوق محفوظ است."
         )
         desc.setObjectName("aboutDesc")
         desc.setAlignment(Qt.AlignCenter)
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
-        info_group = QGroupBox("اطلاعات سیستم")
+        info_group = QGroupBox("اطلاعات محیط اجرا")
         info_group.setObjectName("settingsGroup")
         info_layout = QFormLayout(info_group)
 
         info_layout.addRow("🐍 نسخه Python:", QLabel(f"{sys.version.split()[0]}"))
-        info_layout.addRow("📦 PySide6:", QLabel("6.8.0"))
+        info_layout.addRow("📦 نسخه PySide6:", QLabel("6.8.0"))
         info_layout.addRow("💾 دیتابیس:", QLabel("SQLite 3"))
-        info_layout.addRow("🖥️ سیستم عامل:", QLabel(sys.platform))
+        info_layout.addRow("🖥️ سیستم‌عامل:", QLabel(sys.platform))
 
         layout.addWidget(info_group)
         layout.addStretch()
         return tab
 
     # ========================================================================
-    # توابع مدیریت تم
+    # متدهای اختصاصی اعمال زنده تم و رنگ‌ها به کل نرم‌افزار
     # ========================================================================
+
+    def _apply_preset_palette(self, primary: str, secondary: str):
+        """اعمال پالت رنگی آماده به صورت سراسری"""
+        theme_manager.set_primary_color(primary)
+        theme_manager.set_secondary_color(secondary)
+        self._sync_global_styles()
+
+    def _select_color(self, color_type: str):
+        """انتخاب رنگ دلخواه از پالت استاندارد و اعمال به کل برنامه"""
+        curr = theme_manager.get_primary_color() if color_type == "primary" else theme_manager.get_secondary_color()
+        color = QColorDialog.getColor(QColor(curr), self, f"انتخاب رنگ {'اصلی' if color_type == 'primary' else 'ثانویه'}")
+        if color.isValid():
+            hex_val = color.name()
+            if color_type == "primary":
+                theme_manager.set_primary_color(hex_val)
+            else:
+                theme_manager.set_secondary_color(hex_val)
+            self._sync_global_styles()
+
+    def _sync_global_styles(self):
+        """همگام‌سازی و اعمال بلادرنگ استایل‌شیت به کل برنامه (QApplication)"""
+        p_col = theme_manager.get_primary_color()
+        s_col = theme_manager.get_secondary_color()
+
+        # ۱. بروزرسانی پیش‌نمایش و دکمه‌های صفحه تنظیمات
+        self._on_colors_changed({"primary": p_col, "secondary": s_col})
+
+        # ۲. تولید استایل‌شیت جدید سراسری و تزریق به اپلیکیشن
+        app = QApplication.instance()
+        if app:
+            # اگر ThemeManager متد اعمال استایل دارد صدا می‌زند، وگرنه استایل تولیدی را مستقیم ست می‌کند
+            if hasattr(theme_manager, "apply_theme"):
+                theme_manager.apply_theme()
+            elif hasattr(theme_manager, "get_stylesheet"):
+                app.setStyleSheet(theme_manager.get_stylesheet())
+            else:
+                # استایل پایه استاندارد با رنگ‌های جدید برای تمام صفحات
+                new_qss = f"""
+                    #btnPrimary {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {p_col}, stop:1 {s_col});
+                        color: #ffffff;
+                        border-radius: 8px;
+                        padding: 8px 16px;
+                        font-weight: bold;
+                        border: none;
+                    }}
+                    #btnPrimary:hover {{
+                        background: {p_col};
+                    }}
+                    QTabBar::tab:selected {{
+                        background: {p_col};
+                        color: white;
+                        border-top-left-radius: 6px;
+                        border-top-right-radius: 6px;
+                    }}
+                """
+                app.setStyleSheet(app.styleSheet() + "\n" + new_qss)
 
     def _on_theme_radio_changed(self, theme: str):
         """تغییر تم از رادیو باتن"""
@@ -434,10 +525,10 @@ class SettingsPage(QWidget):
             theme_manager.set_theme("dark")
         elif theme == "system" and self.theme_system.isChecked():
             theme_manager.set_theme("system")
+        self._sync_global_styles()
 
     def _on_theme_changed(self, theme: str):
-        """واکنش به تغییر تم"""
-        # بروزرسانی رادیو باتن‌ها
+        """واکنش به سیگنال تغییر تم"""
         self.theme_light.blockSignals(True)
         self.theme_dark.blockSignals(True)
         self.theme_system.blockSignals(True)
@@ -454,55 +545,70 @@ class SettingsPage(QWidget):
         self.theme_system.blockSignals(False)
 
     def _on_colors_changed(self, colors: dict):
-        """واکنش به تغییر رنگ‌ها"""
-        if "primary" in colors:
-            self.primary_color_btn.setStyleSheet(
-                f"background-color: {colors['primary']}; border-radius: 8px; min-height: 30px;"
-            )
-        if "secondary" in colors:
-            self.secondary_color_btn.setStyleSheet(
-                f"background-color: {colors['secondary']}; border-radius: 8px; min-height: 30px;"
-            )
+        """بروزرسانی بصری دکمه‌های رنگ و نوار پیش‌نمایش"""
+        p_col = colors.get("primary", theme_manager.get_primary_color())
+        s_col = colors.get("secondary", theme_manager.get_secondary_color())
+
+        if hasattr(self, "primary_color_btn"):
+            self.primary_color_btn.setStyleSheet(f"""
+                background-color: {p_col};
+                color: #ffffff;
+                font-weight: bold;
+                border-radius: 8px;
+                min-height: 32px;
+                border: 2px solid #ede8f5;
+            """)
+            self.primary_color_btn.setText(f"رنگ اصلی: {p_col.upper()}")
+
+        if hasattr(self, "secondary_color_btn"):
+            self.secondary_color_btn.setStyleSheet(f"""
+                background-color: {s_col};
+                color: #ffffff;
+                font-weight: bold;
+                border-radius: 8px;
+                min-height: 32px;
+                border: 2px solid #ede8f5;
+            """)
+            self.secondary_color_btn.setText(f"رنگ ثانویه: {s_col.upper()}")
+
+        if hasattr(self, "theme_preview"):
+            self.theme_preview.setStyleSheet(f"""
+                #themePreview {{
+                    border: 2px solid #ede8f5;
+                    border-radius: 8px;
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 {p_col}, stop:1 {s_col});
+                }}
+            """)
 
     def _on_font_changed(self, size: int):
-        """واکنش به تغییر فونت"""
         self.font_size.blockSignals(True)
         self.font_size.setValue(size)
         self.font_size.blockSignals(False)
 
     def _on_font_size_changed(self, size: int):
-        """تغییر سایز فونت"""
         theme_manager.set_font_size(size)
+        self._sync_global_styles()
 
     def _select_font(self):
-        """انتخاب فونت"""
         font, ok = QFontDialog.getFont()
         if ok:
             self.font_size.setValue(font.pointSize())
 
-    def _select_color(self, color_type: str):
-        """انتخاب رنگ"""
-        color = QColorDialog.getColor()
-        if color.isValid():
-            if color_type == "primary":
-                theme_manager.set_primary_color(color.name())
-            else:
-                theme_manager.set_secondary_color(color.name())
-
     def _reset_appearance(self):
-        """بازنشانی تنظیمات ظاهر"""
         reply = QMessageBox.question(
             self,
             "بازنشانی",
-            "آیا از بازنشانی تنظیمات ظاهر به حالت پیش‌فرض اطمینان دارید؟",
+            "آیا از بازنشانی رنگ‌ها و تم به حالت بنفش پیش‌فرض اطمینان دارید؟",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             theme_manager.set_theme("light")
-            theme_manager.set_primary_color("#7657c8")
-            theme_manager.set_secondary_color("#4d3a78")
+            theme_manager.set_primary_color("#7c3aed")
+            theme_manager.set_secondary_color("#5b21b6")
             theme_manager.set_font_size(12)
-            QMessageBox.information(self, "موفق", "تنظیمات ظاهر به حالت پیش‌فرض بازنشانی شد.")
+            self._sync_global_styles()
+            QMessageBox.information(self, "موفق", "تنظیمات ظاهر بازنشانی شد.")
 
     # ========================================================================
     # توابع بارگذاری و ذخیره تنظیمات
@@ -526,18 +632,20 @@ class SettingsPage(QWidget):
         self.default_discount.setValue(float(settings.value("defaults/discount", 0)))
         self.default_tax.setValue(float(settings.value("defaults/tax", 0)))
 
-        # تنظیمات ظاهر از ThemeManager
+        # تم و رنگ‌ها
         theme = theme_manager.get_theme()
         self._on_theme_changed(theme)
-        
         self.font_size.setValue(theme_manager.get_font_size())
-        self._on_colors_changed({"primary": theme_manager.get_primary_color()})
-        self._on_colors_changed({"secondary": theme_manager.get_secondary_color()})
+        self._on_colors_changed({
+            "primary": theme_manager.get_primary_color(),
+            "secondary": theme_manager.get_secondary_color()
+        })
 
     def _save_settings(self):
-        """ذخیره تنظیمات"""
+        """ذخیره تنظیمات و اعمال کامل تم و رنگ‌ها به صورت سراسری"""
         settings = QSettings("EnterpriseERP", "Settings")
 
+        # ذخیره تنظیمات عمومی
         settings.setValue("general/company_name", self.company_name.text())
         settings.setValue("general/app_name", self.app_name.text())
         settings.setValue("general/currency", self.currency.currentText())
@@ -546,14 +654,28 @@ class SettingsPage(QWidget):
         settings.setValue("defaults/discount", self.default_discount.value())
         settings.setValue("defaults/tax", self.default_tax.value())
 
-        QMessageBox.information(self, "موفق", "تنظیمات با موفقیت ذخیره شد.")
+        # اعمال مقادیر انتخاب شده در تم و رنگ‌ها به ThemeManager
+        if self.theme_light.isChecked():
+            theme_manager.set_theme("light")
+        elif self.theme_dark.isChecked():
+            theme_manager.set_theme("dark")
+        elif self.theme_system.isChecked():
+            theme_manager.set_theme("system")
+
+        theme_manager.set_primary_color(theme_manager.get_primary_color())
+        theme_manager.set_secondary_color(theme_manager.get_secondary_color())
+        theme_manager.set_font_size(self.font_size.value())
+
+        # فراخوانی کامل اعمال تم روی کل برنامه
+        self._sync_global_styles()
+        
+        QMessageBox.information(self, "موفق", "تنظیمات سیستم و تم با موفقیت ذخیره و اعمال شد.")
 
     # ========================================================================
     # توابع دیتابیس
     # ========================================================================
 
     def _update_db_info(self):
-        """بروزرسانی اطلاعات دیتابیس"""
         try:
             db_path = Path(DB_PATH)
             if db_path.exists():
@@ -573,7 +695,7 @@ class SettingsPage(QWidget):
                         pass
                 self.db_records_label.setText(f"{total_records:,}")
 
-        except Exception as e:
+        except Exception:
             self.db_size_label.setText("خطا")
             self.db_tables_label.setText("خطا")
             self.db_records_label.setText("خطا")
@@ -633,12 +755,7 @@ class SettingsPage(QWidget):
             backup_path = backup_dir / f"enterprise_backup_{timestamp}.db"
 
             shutil.copy2(DB_PATH, backup_path)
-
-            QMessageBox.information(
-                self,
-                "موفق",
-                f"پشتیبان با موفقیت ایجاد شد.\nمسیر: {backup_path}"
-            )
+            QMessageBox.information(self, "موفق", f"پشتیبان با موفقیت ایجاد شد.\nمسیر: {backup_path}")
             self._refresh_backup_list()
 
         except Exception as e:
@@ -646,12 +763,8 @@ class SettingsPage(QWidget):
 
     def _restore_backup(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "انتخاب فایل پشتیبان",
-            "backups/",
-            "Database Files (*.db)"
+            self, "انتخاب فایل پشتیبان", "backups/", "Database Files (*.db)"
         )
-
         if file_path:
             self._restore_from_file(file_path)
 
@@ -659,10 +772,8 @@ class SettingsPage(QWidget):
         file_path = item.data(Qt.UserRole)
         if file_path:
             reply = QMessageBox.question(
-                self,
-                "تأیید بازیابی",
-                "آیا از بازیابی این پشتیبان اطمینان دارید؟\n"
-                "داده‌های فعلی با داده‌های پشتیبان جایگزین می‌شوند.",
+                self, "تأیید بازیابی",
+                "آیا از بازیابی این پشتیبان اطمینان دارید؟ داده‌های فعلی جایگزین خواهند شد.",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
@@ -677,13 +788,7 @@ class SettingsPage(QWidget):
             shutil.copy2(DB_PATH, current_backup)
 
             shutil.copy2(file_path, DB_PATH)
-
-            QMessageBox.information(
-                self,
-                "موفق",
-                f"پشتیبان با موفقیت بازیابی شد.\n"
-                f"پشتیبان قبلی در مسیر زیر ذخیره شد:\n{current_backup}"
-            )
+            QMessageBox.information(self, "موفق", "پشتیبان با موفقیت بازیابی شد.")
             self._refresh_backup_list()
 
         except Exception as e:
@@ -691,20 +796,17 @@ class SettingsPage(QWidget):
 
     def _refresh_backup_list(self):
         self.backup_list.clear()
-
         backup_dir = Path("backups")
         if backup_dir.exists():
             backups = sorted(backup_dir.glob("enterprise_backup_*.db"), reverse=True)
             for backup in backups[:20]:
                 size = backup.stat().st_size
-                item = QListWidgetItem(
-                    f"{backup.name} ({self._format_size(size)})"
-                )
+                item = QListWidgetItem(f"{backup.name} ({self._format_size(size)})")
                 item.setData(Qt.UserRole, str(backup))
                 self.backup_list.addItem(item)
 
             if not backups:
-                self.backup_list.addItem("هیچ پشتیبان‌ی یافت نشد.")
+                self.backup_list.addItem("هیچ پشتیبانی یافت نشد.")
 
     # ========================================================================
     # توابع مدیریت کاربران
@@ -778,9 +880,7 @@ class SettingsPage(QWidget):
             return
 
         reply = QMessageBox.question(
-            self,
-            "تأیید حذف",
-            f"آیا از حذف کاربر «{username}» اطمینان دارید؟",
+            self, "تأیید حذف", f"آیا از حذف کاربر «{username}» اطمینان دارید؟",
             QMessageBox.Yes | QMessageBox.No
         )
 
@@ -793,14 +893,6 @@ class SettingsPage(QWidget):
                 QMessageBox.information(self, "موفق", "کاربر با موفقیت حذف شد.")
             except Exception as e:
                 QMessageBox.critical(self, "خطا", f"خطا در حذف کاربر:\n{str(e)}")
-
-    # ========================================================================
-    # استایل‌ها
-    # ========================================================================
-
-    def _apply_styles(self):
-        """اعمال استایل‌ها - این متد توسط ThemeManager کنترل می‌شود"""
-        pass
 
 
 class UserDialog(QDialog):
@@ -850,9 +942,7 @@ class UserDialog(QDialog):
 
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Save | QDialogButtonBox.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("ذخیره")
         buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
         buttons.accepted.connect(self.accept)
