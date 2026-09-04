@@ -39,9 +39,11 @@ except Exception:
 class SettingsPage(QWidget):
     """صفحه تنظیمات برنامه با اعمال بلادرنگ تم به تمام صفحات"""
 
+    settings_saved = Signal()  # سیگنال برای اطلاع‌رسانی به سایر صفحات
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        
+
         # اتصال به سیگنال‌های theme_manager
         if hasattr(theme_manager, "themeChanged"):
             theme_manager.themeChanged.connect(self._on_theme_changed)
@@ -49,7 +51,7 @@ class SettingsPage(QWidget):
             theme_manager.colorsChanged.connect(self._on_colors_changed)
         if hasattr(theme_manager, "fontChanged"):
             theme_manager.fontChanged.connect(self._on_font_changed)
-        
+
         self._setup_ui()
         self._load_settings()
 
@@ -118,7 +120,7 @@ class SettingsPage(QWidget):
 
         layout.addWidget(general_group)
 
-        default_group = QGroupBox("تنظیمات پیش‌فرض")
+        default_group = QGroupBox("تنظیمات پیش‌فرض (درصدی)")
         default_group.setObjectName("settingsGroup")
         default_layout = QFormLayout(default_group)
         default_layout.setSpacing(10)
@@ -489,13 +491,11 @@ class SettingsPage(QWidget):
         # ۲. تولید استایل‌شیت جدید سراسری و تزریق به اپلیکیشن
         app = QApplication.instance()
         if app:
-            # اگر ThemeManager متد اعمال استایل دارد صدا می‌زند، وگرنه استایل تولیدی را مستقیم ست می‌کند
             if hasattr(theme_manager, "apply_theme"):
                 theme_manager.apply_theme()
             elif hasattr(theme_manager, "get_stylesheet"):
                 app.setStyleSheet(theme_manager.get_stylesheet())
             else:
-                # استایل پایه استاندارد با رنگ‌های جدید برای تمام صفحات
                 new_qss = f"""
                     #btnPrimary {{
                         background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {p_col}, stop:1 {s_col});
@@ -532,14 +532,14 @@ class SettingsPage(QWidget):
         self.theme_light.blockSignals(True)
         self.theme_dark.blockSignals(True)
         self.theme_system.blockSignals(True)
-        
+
         if theme == "dark":
             self.theme_dark.setChecked(True)
         elif theme == "system":
             self.theme_system.setChecked(True)
         else:
             self.theme_light.setChecked(True)
-        
+
         self.theme_light.blockSignals(False)
         self.theme_dark.blockSignals(False)
         self.theme_system.blockSignals(False)
@@ -620,7 +620,7 @@ class SettingsPage(QWidget):
 
         self.company_name.setText(settings.value("general/company_name", ""))
         self.app_name.setText(settings.value("general/app_name", "Enterprise ERP"))
-        
+
         currency_index = self.currency.findText(settings.value("general/currency", "ریال"))
         if currency_index >= 0:
             self.currency.setCurrentIndex(currency_index)
@@ -629,8 +629,9 @@ class SettingsPage(QWidget):
         if date_format_index >= 0:
             self.date_format.setCurrentIndex(date_format_index)
 
-        self.default_discount.setValue(float(settings.value("defaults/discount", 0)))
-        self.default_tax.setValue(float(settings.value("defaults/tax", 0)))
+        # خواندن مقادیر درصدی
+        self.default_discount.setValue(float(settings.value("defaults/discount_percent", 0)))
+        self.default_tax.setValue(float(settings.value("defaults/tax_percent", 0)))
 
         # تم و رنگ‌ها
         theme = theme_manager.get_theme()
@@ -642,7 +643,7 @@ class SettingsPage(QWidget):
         })
 
     def _save_settings(self):
-        """ذخیره تنظیمات و اعمال کامل تم و رنگ‌ها به صورت سراسری"""
+        """ذخیره تنظیمات و ارسال سیگنال به سایر صفحات (مثل فروش)"""
         settings = QSettings("EnterpriseERP", "Settings")
 
         # ذخیره تنظیمات عمومی
@@ -651,8 +652,9 @@ class SettingsPage(QWidget):
         settings.setValue("general/currency", self.currency.currentText())
         settings.setValue("general/date_format", self.date_format.currentText())
 
-        settings.setValue("defaults/discount", self.default_discount.value())
-        settings.setValue("defaults/tax", self.default_tax.value())
+        # ذخیره مقادیر درصدی
+        settings.setValue("defaults/discount_percent", self.default_discount.value())
+        settings.setValue("defaults/tax_percent", self.default_tax.value())
 
         # اعمال مقادیر انتخاب شده در تم و رنگ‌ها به ThemeManager
         if self.theme_light.isChecked():
@@ -668,7 +670,10 @@ class SettingsPage(QWidget):
 
         # فراخوانی کامل اعمال تم روی کل برنامه
         self._sync_global_styles()
-        
+
+        # ارسال سیگنال برای اطلاع‌رسانی به سایر صفحات (مثل فروش)
+        self.settings_saved.emit()
+
         QMessageBox.information(self, "موفق", "تنظیمات سیستم و تم با موفقیت ذخیره و اعمال شد.")
 
     # ========================================================================
@@ -961,11 +966,11 @@ class UserDialog(QDialog):
                 if row:
                     self.username_edit.setText(row["username"])
                     self.full_name_edit.setText(row["full_name"] or "")
-                    
+
                     role_index = self.role_combo.findText(self._get_role_persian(row["role"]))
                     if role_index >= 0:
                         self.role_combo.setCurrentIndex(role_index)
-                    
+
                     self.is_active.setChecked(bool(row["is_active"]))
                     self.username_edit.setReadOnly(True)
                     self.password_edit.setPlaceholderText("برای تغییر رمز عبور وارد کنید...")

@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSettings
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -106,13 +106,19 @@ class SalesRepo:
         customer_id: int | None,
         user_id: int,
         items: list[dict],
-        discount: float = 0.0,
+        discount_percent: float = 0.0,
+        tax_percent: float = 0.0,
     ) -> tuple[bool, str, int | None]:
         if not items:
             return False, "فاکتور خالی است.", None
 
         subtotal = sum(i["quantity"] * i["unit_price"] for i in items)
-        total = max(subtotal - discount, 0.0)
+        
+        # محاسبه درصدی
+        discount_amount = subtotal * (discount_percent / 100.0)
+        taxable_amount = max(subtotal - discount_amount, 0.0)
+        tax_amount = taxable_amount * (tax_percent / 100.0)
+        total = max(taxable_amount + tax_amount, 0.0)
 
         conn = _connect()
         try:
@@ -254,6 +260,11 @@ class SalesPage(QWidget):
         self._print_dialog = None  # برای جلوگیری از جمع‌آوری زباله
         self._invoice_printer = None  # کش ماژول چاپ
 
+        # --- بارگذاری تنظیمات پیش‌فرض (درصدی) ---
+        self._settings = QSettings("EnterpriseERP", "Settings")
+        self._default_discount_percent = float(self._settings.value("defaults/discount_percent", 0))
+        self._default_tax_percent = float(self._settings.value("defaults/tax_percent", 0))
+
         tabs = QTabWidget()
         tabs.addTab(self._build_new_invoice_tab(), "فاکتور جدید")
         tabs.addTab(self._build_history_tab(), "فاکتورهای اخیر")
@@ -265,6 +276,7 @@ class SalesPage(QWidget):
         self._apply_styles()
         self.reload_customers()
         self.reload_invoices()
+        self._on_discount_changed()  # اعمال تخفیف پیش‌فرض
 
         if self._user_id is None:
             QMessageBox.warning(
@@ -273,6 +285,18 @@ class SalesPage(QWidget):
                 "هیچ کاربر فعالی در دیتابیس نیست؛ ثبت فاکتور غیرفعال می‌شود.",
             )
             self.save_btn.setEnabled(False)
+
+    def showEvent(self, event):
+        """هر بار که صفحه فروش نمایش داده می‌شود، تنظیمات جدید را بخوان"""
+        super().showEvent(event)
+        # خواندن مجدد تنظیمات
+        self._default_discount_percent = float(self._settings.value("defaults/discount_percent", 0))
+        self._default_tax_percent = float(self._settings.value("defaults/tax_percent", 0))
+        
+        # اعمال مجدد مقادیر پیش‌فرض (درصدی)
+        self.discount_spin.setValue(self._default_discount_percent)
+        self.tax_spin.setValue(self._default_tax_percent)
+        self._refresh_totals()
 
     # ------------------------------------------------------------------ راه‌اندازی ماژول چاپ
     def _get_invoice_printer(self):
@@ -354,13 +378,19 @@ class SalesPage(QWidget):
         customer_row.addWidget(self.customer_combo, 1)
         customer_row.addWidget(new_customer_btn)
 
+        # تخفیف درصدی
         self.discount_spin = QDoubleSpinBox()
-        self.discount_spin.setRange(0, 1_000_000_000)
-        self.discount_spin.setDecimals(0)
-        self.discount_spin.setSingleStep(1000)
-        self.discount_spin.setSuffix(" ریال")
+        self.discount_spin.setRange(0, 100)
+        self.discount_spin.setSuffix(" %")
         self.discount_spin.setAccessibleName("تخفیف فاکتور")
-        self.discount_spin.valueChanged.connect(self._refresh_totals)
+        self.discount_spin.valueChanged.connect(self._on_discount_changed)
+
+        # مالیات درصدی
+        self.tax_spin = QDoubleSpinBox()
+        self.tax_spin.setRange(0, 100)
+        self.tax_spin.setSuffix(" %")
+        self.tax_spin.setValue(self._default_tax_percent)
+        self.tax_spin.valueChanged.connect(self._refresh_totals)
 
         self.subtotal_label = QLabel("۰")
         self.total_label = QLabel("۰")
@@ -369,6 +399,7 @@ class SalesPage(QWidget):
         summary = QFormLayout()
         summary.addRow("جمع اقلام:", self.subtotal_label)
         summary.addRow("تخفیف:", self.discount_spin)
+        summary.addRow("مالیات:", self.tax_spin)
         summary.addRow("مبلغ قابل پرداخت:", self.total_label)
 
         summary_frame = QFrame()
@@ -470,6 +501,10 @@ class SalesPage(QWidget):
                 self.history_table.setItem(r, c, cell)
 
     # ----------------------------------------------------------------- رفتارها
+    def _on_discount_changed(self):
+        """اعمال تخفیف پیش‌فرض و بروزرسانی جمع کل"""
+        self._refresh_totals()
+
     def _on_scan(self) -> None:
         term = self.scan_edit.text().strip()
         if not term:
@@ -571,7 +606,15 @@ class SalesPage(QWidget):
 
     def _refresh_totals(self) -> None:
         subtotal = sum(i["quantity"] * i["unit_price"] for i in self._items)
-        total = max(subtotal - self.discount_spin.value(), 0.0)
+        discount_percent = self.discount_spin.value()
+        tax_percent = self.tax_spin.value()
+        
+        # محاسبه درصدی
+        discount_amount = subtotal * (discount_percent / 100.0)
+        taxable_amount = max(subtotal - discount_amount, 0.0)
+        tax_amount = taxable_amount * (tax_percent / 100.0)
+        total = max(taxable_amount + tax_amount, 0.0)
+
         self.subtotal_label.setText(_money(subtotal))
         self.total_label.setText(_money(total))
 
@@ -599,8 +642,13 @@ class SalesPage(QWidget):
         # گرفتن اطلاعات فاکتور قبل از ثبت
         customer_name = self.customer_combo.currentText()
         subtotal = sum(i["quantity"] * i["unit_price"] for i in self._items)
-        discount = self.discount_spin.value()
-        total = max(subtotal - discount, 0.0)
+        discount_percent = self.discount_spin.value()
+        tax_percent = self.tax_spin.value()
+        
+        discount_amount = subtotal * (discount_percent / 100.0)
+        taxable_amount = max(subtotal - discount_amount, 0.0)
+        tax_amount = taxable_amount * (tax_percent / 100.0)
+        total = max(taxable_amount + tax_amount, 0.0)
         
         # تهیه نسخه از آیتم‌ها برای چاپ
         items_copy = [
@@ -617,7 +665,8 @@ class SalesPage(QWidget):
             self.customer_combo.currentData(),
             self._user_id,
             self._items,
-            discount,
+            discount_percent,
+            tax_percent,
         )
         
         if not ok:
@@ -631,7 +680,8 @@ class SalesPage(QWidget):
             "customer": customer_name,
             "seller": Session.current_user.get("full_name", "سیستم") if Session.current_user else "سیستم",
             "total": total,
-            "discount": discount,
+            "discount": discount_amount,
+            "tax": tax_amount,
         }
 
         # نمایش پیام موفقیت
@@ -720,7 +770,8 @@ class SalesPage(QWidget):
 
     def _clear_invoice(self) -> None:
         self._items.clear()
-        self.discount_spin.setValue(0)
+        self.discount_spin.setValue(self._default_discount_percent)  # بازگشت به تخفیف پیش‌فرض
+        self.tax_spin.setValue(self._default_tax_percent)  # بازگشت به مالیات پیش‌فرض
         self.items_table.setRowCount(0)
         self._refresh_totals()
         self.scan_edit.setFocus()
@@ -787,7 +838,7 @@ class SalesPage(QWidget):
                 "customer": head["customer"],
                 "seller": seller_name,
                 "total": head["total"],
-                "discount": 0,  # اگر تخفیف در دیتابیس ذخیره شود
+                "discount": 0,
             }
             
             items = [
