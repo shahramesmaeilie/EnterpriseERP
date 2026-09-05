@@ -10,7 +10,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QButtonGroup, QFrame, QSizePolicy, QScrollArea,
-    QGridLayout
+    QGridLayout, QMessageBox  # اضافه کردن QMessageBox
 )
 
 from app.core.session import Session
@@ -452,6 +452,7 @@ class Dashboard(QWidget):
         ]
 
         for i, (target_key, icon, title, value, color) in enumerate(stats_data):
+            # به جای QFrame از QPushButton استفاده می‌کنیم تا قابل کلیک باشد
             card = self._create_quick_stat_card(icon, title, value, color, target_key)
             stats_layout.addWidget(card, i // 2, i % 2)  # دو ستون
 
@@ -480,22 +481,23 @@ class Dashboard(QWidget):
         except:
             return "0"
 
-    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str, target_key: str) -> QFrame:
-        """ساخت کارت آمار سریع قابل کلیک."""
-        card = QFrame()
+    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str, target_key: str) -> QPushButton:
+        """ساخت کارت آمار سریع قابل کلیک با استفاده از QPushButton."""
+        card = QPushButton()
         card.setObjectName("quickStatCard")
         card.setCursor(Qt.PointingHandCursor)
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumSize(140, 90)
         card.setStyleSheet(f"""
-            #quickStatCard {{
+            QPushButton#quickStatCard {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #ffffff, stop:1 #f8f6ff);
                 border: 2px solid {color}33;
                 border-radius: 16px;
                 padding: 16px;
+                text-align: left;
             }}
-            #quickStatCard:hover {{
+            QPushButton#quickStatCard:hover {{
                 border-color: {color};
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #ffffff, stop:1 {color}10);
@@ -519,7 +521,7 @@ class Dashboard(QWidget):
         layout.addWidget(lbl_value)
 
         # اتصال کلیک به صفحه مربوطه
-        card.mousePressEvent = lambda event, k=target_key: self._navigate_to_page(k)
+        card.clicked.connect(lambda _, k=target_key: self._navigate_to_page(k))
 
         return card
 
@@ -529,17 +531,21 @@ class Dashboard(QWidget):
             QMessageBox.warning(self, "دسترسی محدود", "شما به این بخش دسترسی ندارید.")
             return
         
-        # پیدا کردن ایندکس صفحه در استک
+        # پیدا کردن ایندکس صفحه در استک از طریق صفحه‌های ساخته شده
         for idx, (k, label, icon) in enumerate(self.MENU_ITEMS):
             if k == key:
                 self._on_menu_clicked(idx, k)
-                break
-        else:
-            # اگر صفحه پیدا نشد
+                return
+        
+        # اگر کلید با منو مطابقت نداشت، از طریق cache پیدا می‌کنیم
+        if key in self._page_cache:
             for idx in range(self.stack.count()):
-                if self.stack.widget(idx).objectName() == f"{key}Page":
+                if self.stack.widget(idx) is self._page_cache[key]:
                     self.stack.setCurrentIndex(idx)
-                    break
+                    self._current_page_key = key
+                    return
+        
+        QMessageBox.warning(self, "خطا", "صفحه مورد نظر یافت نشد.")
 
     @staticmethod
     def _placeholder(text: str) -> QWidget:

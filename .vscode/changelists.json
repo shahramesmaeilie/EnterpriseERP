@@ -3,10 +3,7 @@
     {
       "name": "Default",
       "files": [
-        "app/ui/pages/__pycache__/accounting.cpython-314.pyc",
-        "app/ui/dashboard.py",
-        "enterprise.db-shm",
-        "enterprise.db-wal"
+        "app/ui/dashboard.py"
       ]
     }
   ],
