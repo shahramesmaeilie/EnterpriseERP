@@ -320,8 +320,21 @@ class Dashboard(QWidget):
         return sidebar
 
     def _on_menu_clicked(self, index: int, key: str) -> None:
+        """مدیریت کلیک روی آیتم منو با پرش به صفحه مربوطه."""
         self.stack.setCurrentIndex(index)
         self._current_page_key = key
+        # اگر دکمه‌ای در منو انتخاب شده است، آن را تیک بزنید
+        for btn in self.menu_group.buttons():
+            if btn.text().strip().endswith(self._get_menu_label(key)):
+                btn.setChecked(True)
+                break
+
+    def _get_menu_label(self, key: str) -> str:
+        """دریافت عنوان منو بر اساس کلید صفحه."""
+        for k, label, icon in self.MENU_ITEMS:
+            if k == key:
+                return label
+        return key
 
     def _select_first_page(self) -> None:
         if self.menu_group.buttons():
@@ -426,14 +439,20 @@ class Dashboard(QWidget):
         welcome.setWordWrap(True)
         lay.addWidget(welcome)
 
-        # آمار سریع با QGridLayout واکنش‌گرا
+        # آمار سریع با QGridLayout واکنش‌گرا (قابل کلیک)
         stats_frame = QFrame(objectName="statsFrame")
         stats_layout = QGridLayout(stats_frame)
         stats_layout.setSpacing(15)
 
-        stats_data = self._get_quick_stats()
-        for i, (title, value, icon, color) in enumerate(stats_data):
-            card = self._create_quick_stat_card(icon, title, value, color)
+        stats_data = [
+            ("customers", "👥", "مشتریان", self._get_stat_count("customers"), "#2e7d32"),
+            ("inventory", "📦", "کل کالاها", self._get_stat_count("products"), "#5b3ec8"),
+            ("sales", "📄", "فاکتورها", self._get_stat_count("invoices"), "#c62828"),
+            ("sales", "💰", "کل فروش", self._get_stat_total_sales(), "#e65100"),
+        ]
+
+        for i, (target_key, icon, title, value, color) in enumerate(stats_data):
+            card = self._create_quick_stat_card(icon, title, value, color, target_key)
             stats_layout.addWidget(card, i // 2, i % 2)  # دو ستون
 
         lay.addWidget(stats_frame)
@@ -441,39 +460,31 @@ class Dashboard(QWidget):
 
         return page
 
-    def _get_quick_stats(self) -> list:
+    def _get_stat_count(self, table_name: str) -> str:
+        """دریافت تعداد رکوردهای یک جدول."""
         try:
             from app.database.connection import get_connection
             with get_connection() as conn:
-                products = conn.execute("SELECT COUNT(*) as count FROM products").fetchone()
-                product_count = products["count"] if products else 0
+                result = conn.execute(f"SELECT COUNT(*) as count FROM {table_name}").fetchone()
+                return str(result["count"]) if result else "0"
+        except:
+            return "0"
 
-                customers = conn.execute("SELECT COUNT(*) as count FROM customers").fetchone()
-                customer_count = customers["count"] if customers else 0
+    def _get_stat_total_sales(self) -> str:
+        """دریافت مجموع فروش."""
+        try:
+            from app.database.connection import get_connection
+            with get_connection() as conn:
+                result = conn.execute("SELECT COALESCE(SUM(total), 0) as total FROM invoices").fetchone()
+                return f"{result['total']:,.0f}" if result else "0"
+        except:
+            return "0"
 
-                invoices = conn.execute("SELECT COUNT(*) as count FROM invoices").fetchone()
-                invoice_count = invoices["count"] if invoices else 0
-
-                sales = conn.execute("SELECT COALESCE(SUM(total), 0) as total FROM invoices").fetchone()
-                total_sales = sales["total"] if sales else 0
-
-                return [
-                    ("📦", "کل کالاها", str(product_count), "#5b3ec8"),
-                    ("👥", "مشتریان", str(customer_count), "#2e7d32"),
-                    ("📄", "فاکتورها", str(invoice_count), "#c62828"),
-                    ("💰", "کل فروش", f"{total_sales:,.0f}", "#e65100"),
-                ]
-        except Exception:
-            return [
-                ("📦", "کل کالاها", "۰", "#5b3ec8"),
-                ("👥", "مشتریان", "۰", "#2e7d32"),
-                ("📄", "فاکتورها", "۰", "#c62828"),
-                ("💰", "کل فروش", "۰", "#e65100"),
-            ]
-
-    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str) -> QFrame:
+    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str, target_key: str) -> QFrame:
+        """ساخت کارت آمار سریع قابل کلیک."""
         card = QFrame()
         card.setObjectName("quickStatCard")
+        card.setCursor(Qt.PointingHandCursor)
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumSize(140, 90)
         card.setStyleSheet(f"""
@@ -486,6 +497,8 @@ class Dashboard(QWidget):
             }}
             #quickStatCard:hover {{
                 border-color: {color};
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #ffffff, stop:1 {color}10);
             }}
         """)
 
@@ -505,7 +518,28 @@ class Dashboard(QWidget):
         layout.addWidget(lbl_title)
         layout.addWidget(lbl_value)
 
+        # اتصال کلیک به صفحه مربوطه
+        card.mousePressEvent = lambda event, k=target_key: self._navigate_to_page(k)
+
         return card
+
+    def _navigate_to_page(self, key: str) -> None:
+        """هدایت کاربر به صفحه مربوطه با کلیک روی کارت آماری."""
+        if not self.has_access(key):
+            QMessageBox.warning(self, "دسترسی محدود", "شما به این بخش دسترسی ندارید.")
+            return
+        
+        # پیدا کردن ایندکس صفحه در استک
+        for idx, (k, label, icon) in enumerate(self.MENU_ITEMS):
+            if k == key:
+                self._on_menu_clicked(idx, k)
+                break
+        else:
+            # اگر صفحه پیدا نشد
+            for idx in range(self.stack.count()):
+                if self.stack.widget(idx).objectName() == f"{key}Page":
+                    self.stack.setCurrentIndex(idx)
+                    break
 
     @staticmethod
     def _placeholder(text: str) -> QWidget:
