@@ -15,6 +15,13 @@ REQUIRED_COLUMNS: list[tuple[str, str, str]] = [
     ("products", "unit_price",   "REAL DEFAULT 0.0"),
     ("products", "description",  "TEXT DEFAULT ''"),
     ("products", "retail_price", "REAL DEFAULT 0.0"),
+    # ستون‌های جدید برای جدول چک‌ها (اطلاعات صادرکننده و دریافت‌کننده)
+    ("checks", "issuer_name", "TEXT DEFAULT ''"),
+    ("checks", "issuer_national_id", "TEXT DEFAULT ''"),
+    ("checks", "issuer_phone", "TEXT DEFAULT ''"),
+    ("checks", "receiver_name", "TEXT DEFAULT ''"),
+    ("checks", "receiver_national_id", "TEXT DEFAULT ''"),
+    ("checks", "receiver_phone", "TEXT DEFAULT ''"),
 ]
 
 REQUIRED_TABLES: dict[str, str] = {

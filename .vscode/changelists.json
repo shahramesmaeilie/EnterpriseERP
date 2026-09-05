@@ -5,16 +5,24 @@
       "files": [
         "app/ui/pages/accounting.py",
         ".vscode/changelists.json",
-        "app/ui/dashboard.py",
         "app/database/__pycache__/migrations.cpython-314.pyc",
-        "app/database/migrations.py",
-        "app/ui/__pycache__/dashboard.cpython-314.pyc",
-        "app/ui/pages/users.py",
-        "app/ui/pages/__pycache__/users.cpython-314.pyc",
-        "enterprise.db",
         "app/ui/pages/__pycache__/accounting.cpython-314.pyc",
-        "enterprise.db-shm",
-        "enterprise.db-wal"
+        "enterprise.db",
+        "app/ui/pages/__pycache__/sales.cpython-314.pyc",
+        "app/ui/pages/__pycache__/settings.cpython-314.pyc",
+        "app/database/__pycache__/__init__.cpython-314.pyc",
+        "app/database/__pycache__/connection.cpython-314.pyc",
+        "app/database/__pycache__/schema.cpython-314.pyc",
+        "app/database/__pycache__/seed.cpython-314.pyc",
+        "app/ui/pages/__pycache__/__init__.cpython-314.pyc",
+        "app/ui/pages/__pycache__/inventory.cpython-314.pyc",
+        "app/ui/pages/__pycache__/purchases.cpython-314.pyc",
+        "app/ui/pages/__pycache__/reports.cpython-314.pyc",
+        "app/ui/pages/__pycache__/users.cpython-314.pyc",
+        "app/database/migrations.py",
+        "app/ui/pages/sales.py",
+        "checks.pdf",
+        "accounting_docs.pdf"
       ]
     }
   ],

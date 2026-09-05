@@ -378,19 +378,22 @@ class SalesPage(QWidget):
         customer_row.addWidget(self.customer_combo, 1)
         customer_row.addWidget(new_customer_btn)
 
-        # تخفیف درصدی
+        # --- تخفیف و مالیات (فقط از تنظیمات - غیرفعال) ---
         self.discount_spin = QDoubleSpinBox()
         self.discount_spin.setRange(0, 100)
         self.discount_spin.setSuffix(" %")
         self.discount_spin.setAccessibleName("تخفیف فاکتور")
-        self.discount_spin.valueChanged.connect(self._on_discount_changed)
+        self.discount_spin.setEnabled(False)  # غیرفعال کردن تغییر
+        self.discount_spin.setStyleSheet("background-color: #f0f0f0; color: #666;")
+        self.discount_spin.setToolTip("تغییر تخفیف فقط از بخش تنظیمات امکان‌پذیر است.")
 
-        # مالیات درصدی
         self.tax_spin = QDoubleSpinBox()
         self.tax_spin.setRange(0, 100)
         self.tax_spin.setSuffix(" %")
         self.tax_spin.setValue(self._default_tax_percent)
-        self.tax_spin.valueChanged.connect(self._refresh_totals)
+        self.tax_spin.setEnabled(False)  # غیرفعال کردن تغییر
+        self.tax_spin.setStyleSheet("background-color: #f0f0f0; color: #666;")
+        self.tax_spin.setToolTip("تغییر مالیات فقط از بخش تنظیمات امکان‌پذیر است.")
 
         self.subtotal_label = QLabel("۰")
         self.total_label = QLabel("۰")
@@ -398,8 +401,8 @@ class SalesPage(QWidget):
 
         summary = QFormLayout()
         summary.addRow("جمع اقلام:", self.subtotal_label)
-        summary.addRow("تخفیف:", self.discount_spin)
-        summary.addRow("مالیات:", self.tax_spin)
+        summary.addRow("تخفیف (تنظیمات):", self.discount_spin)
+        summary.addRow("مالیات (تنظیمات):", self.tax_spin)
         summary.addRow("مبلغ قابل پرداخت:", self.total_label)
 
         summary_frame = QFrame()
