@@ -8,3 +8,4 @@ from app.ui.pages.reports import ReportsPage
 from app.ui.pages.settings import SettingsPage
 
 __all__ = ['SalesPage', 'PurchasesPage', 'InventoryPage', 'ReportsPage', 'SettingsPage']
+

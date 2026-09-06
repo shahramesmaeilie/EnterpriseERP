@@ -1,21 +1,53 @@
 # -*- coding: utf-8 -*-
-"""app/ui/dashboard.py — داشبورد اصلی Enterprise ERP (Responsive & Resizable)"""
+"""app/ui/dashboard.py — داشبورد اصلی Enterprise ERP (انیمیشنی، کارتونی و سه‌بعدی)"""
 
 from pathlib import Path
 from typing import Optional, Set
 
-from PySide6.QtCore import Qt, QSize, QByteArray, QPoint
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor
+from PySide6.QtCore import (
+    Qt, QSize, QByteArray, QPoint, QPropertyAnimation, QEasingCurve, QTimer, QParallelAnimationGroup
+)
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QBrush, QPalette
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QButtonGroup, QFrame, QSizePolicy, QScrollArea,
-    QGridLayout, QMessageBox  # اضافه کردن QMessageBox
+    QGridLayout, QMessageBox, QGraphicsDropShadowEffect
 )
 
+try:
+    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QPieSeries, QValueAxis
+    CHARTS_AVAILABLE = True
+except ImportError:
+    CHARTS_AVAILABLE = False
+
 from app.core.session import Session
+from app.database.connection import get_connection
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# مسیرهای مختلف برای تصویر پس‌زمینه
+BACKGROUND_PATHS = [
+    PROJECT_ROOT / "app" / "assets" / "images" / "background.jpg",
+    PROJECT_ROOT / "assets" / "images" / "background.jpg",
+    PROJECT_ROOT / "background.jpg",
+    Path("app/assets/images/background.jpg"),
+    Path("assets/images/background.jpg"),
+]
+
+# پیدا کردن مسیر صحیح تصویر
+BACKGROUND_IMAGE = None
+for path in BACKGROUND_PATHS:
+    if path.exists():
+        BACKGROUND_IMAGE = path
+        print(f"✅ تصویر پس‌زمینه پیدا شد: {BACKGROUND_IMAGE}")
+        break
+
+if BACKGROUND_IMAGE is None:
+    print("⚠️ تصویر پس‌زمینه پیدا نشد! مسیرهای جستجو:")
+    for path in BACKGROUND_PATHS:
+        print(f"   - {path}")
+
 LOGO_SVG = PROJECT_ROOT / "Enterprise.svg"
 
 # ================================================================ SVG ICONS
@@ -122,9 +154,19 @@ def create_logo_icon(size: int = 40) -> QIcon:
     return QIcon(pixmap)
 
 
+def apply_3d_shadow(widget: QWidget, color: QColor = QColor(0, 0, 0, 60), blur: int = 20, offset: int = 5):
+    """اعمال سایه سه‌بعدی به یک ویجت."""
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(blur)
+    shadow.setXOffset(offset)
+    shadow.setYOffset(offset)
+    shadow.setColor(color)
+    widget.setGraphicsEffect(shadow)
+
+
 # ================================================================ DASHBOARD
 class Dashboard(QWidget):
-    """داشبورد اصلی با قابلیت تغییر اندازه، اسکرول و واکنش‌گرا"""
+    """داشبورد اصلی با قابلیت تغییر اندازه، انیمیشن، کارتونی و سه‌بعدی"""
 
     MENU_ITEMS = [
         ("home", "🏠 داشبورد", "home"),
@@ -152,6 +194,8 @@ class Dashboard(QWidget):
         self._login = None
         self._page_cache: dict = {}
         self._current_page_key: str = "home"
+        self._animations = []
+        self._background_pixmap: Optional[QPixmap] = None
 
         # قابل تغییر اندازه
         self.setMinimumSize(800, 600)
@@ -173,12 +217,23 @@ class Dashboard(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
-        self.container = QFrame(objectName="mainContainer")
+        # کانتینر اصلی
+        self.container = QFrame()
+        self.container.setObjectName("mainContainer")
         outer.addWidget(self.container)
 
-        root = QVBoxLayout(self.container)
+        # لایه‌بندی کانتینر اصلی
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+
+        # بارگذاری تصویر پس‌زمینه
+        self._load_background()
+
+        root = QVBoxLayout()
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+        container_layout.addLayout(root)
 
         root.addWidget(self._build_header())
 
@@ -190,8 +245,52 @@ class Dashboard(QWidget):
         self.stack = QStackedWidget(objectName="contentStack")
         
         # در RTL: سایدبار سمت راست، محتوا سمت چپ
-        body.addWidget(self._build_sidebar(), 0)  # سایدبار با عرض انعطاف‌پذیر
-        body.addWidget(self.stack, 1)              # فضای باقی‌مانده
+        body.addWidget(self._build_sidebar(), 0)
+        body.addWidget(self.stack, 1)
+
+    def _load_background(self):
+        """بارگذاری تصویر پس‌زمینه"""
+        if BACKGROUND_IMAGE and BACKGROUND_IMAGE.exists():
+            self._background_pixmap = QPixmap(str(BACKGROUND_IMAGE))
+            if not self._background_pixmap.isNull():
+                print(f"✅ تصویر پس‌زمینه با موفقیت بارگذاری شد: {self._background_pixmap.size().width()}x{self._background_pixmap.size().height()}")
+                # تنظیم استایل پس‌زمینه برای کانتینر
+                self.container.setStyleSheet("""
+                    #mainContainer {
+                        background-color: #faf8ff;
+                        border-radius: 18px;
+                    }
+                """)
+                return
+        
+        # اگر تصویر پیدا نشد، از رنگ پیش‌فرض استفاده کن
+        print("⚠️ از رنگ پس‌زمینه پیش‌فرض استفاده می‌شود.")
+        self.container.setStyleSheet("""
+            #mainContainer {
+                background-color: #faf8ff;
+                border-radius: 18px;
+            }
+        """)
+
+    def paintEvent(self, event):
+        """رسم تصویر پس‌زمینه"""
+        if self._background_pixmap and not self._background_pixmap.isNull():
+            painter = QPainter(self.container)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            # مقیاس‌سازی تصویر به اندازه کانتینر
+            scaled_pixmap = self._background_pixmap.scaled(
+                self.container.size(),
+                Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation
+            )
+            painter.drawPixmap(0, 0, scaled_pixmap)
+            painter.end()
+        super().paintEvent(event)
+
+    def resizeEvent(self, event):
+        """به‌روزرسانی هنگام تغییر اندازه"""
+        self.update()
+        super().resizeEvent(event)
 
     def _connect_signals(self) -> None:
         pass
@@ -240,10 +339,6 @@ class Dashboard(QWidget):
         logo_label.setAlignment(Qt.AlignCenter)
         lay.addWidget(logo_label)
 
-        # title = QLabel("Enterprise ERP", objectName="appTitle")
-        # lay.addWidget(title)
-        # lay.addStretch(1)
-
         role_fa = "مدیر سیستم" if self._role() == "admin" else "کاربر"
         user_lbl = QLabel(f"{self._display_name()}  |  {role_fa}",
                           objectName="userLabel")
@@ -274,7 +369,6 @@ class Dashboard(QWidget):
     # ============================================================ SIDEBAR (Responsive)
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame(objectName="sidebar")
-        # سایدبار انعطاف‌پذیر با حداقل و حداکثر عرض
         sidebar.setMinimumWidth(180)
         sidebar.setMaximumWidth(280)
         sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -323,7 +417,6 @@ class Dashboard(QWidget):
         """مدیریت کلیک روی آیتم منو با پرش به صفحه مربوطه."""
         self.stack.setCurrentIndex(index)
         self._current_page_key = key
-        # اگر دکمه‌ای در منو انتخاب شده است، آن را تیک بزنید
         for btn in self.menu_group.buttons():
             if btn.text().strip().endswith(self._get_menu_label(key)):
                 btn.setChecked(True)
@@ -421,45 +514,200 @@ class Dashboard(QWidget):
         scroll.setWidget(widget)
         return scroll
 
+    # ============================================================ HOME PAGE (KPI + CHARTS)
     def _create_home_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName("homePage")
 
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(30, 30, 30, 30)
-        lay.setSpacing(20)
+        main_layout = QVBoxLayout(page)
+        main_layout.setContentsMargins(25, 25, 25, 25)
+        main_layout.setSpacing(20)
 
+        # عنوان خوش‌آمدگویی
         welcome = QLabel(
-            f"🌟 خوش آمدید، {self._display_name()} عزیز!\n\n"
-            "از منوی کنار برای دسترسی به بخش‌های سیستم استفاده کنید.\n"
-            "📊 برای مشاهده گزارش‌ها و آمار به بخش «گزارش‌ها» مراجعه کنید.",
+            f"🌟 خوش آمدید، {self._display_name()} عزیز!\n"
+            "برای دسترسی سریع به بخش‌های سیستم، روی کارت‌های آماری کلیک کنید.",
             objectName="welcomeLabel"
         )
         welcome.setAlignment(Qt.AlignCenter)
         welcome.setWordWrap(True)
-        lay.addWidget(welcome)
+        main_layout.addWidget(welcome)
 
-        # آمار سریع با QGridLayout واکنش‌گرا (قابل کلیک)
-        stats_frame = QFrame(objectName="statsFrame")
-        stats_layout = QGridLayout(stats_frame)
-        stats_layout.setSpacing(15)
+        # --- ردیف ۱: کارت‌های KPI ---
+        kpi_layout = QGridLayout()
+        kpi_layout.setSpacing(20)
 
-        stats_data = [
-            ("customers", "👥", "مشتریان", self._get_stat_count("customers"), "#2e7d32"),
-            ("inventory", "📦", "کل کالاها", self._get_stat_count("products"), "#5b3ec8"),
-            ("sales", "📄", "فاکتورها", self._get_stat_count("invoices"), "#c62828"),
-            ("sales", "💰", "کل فروش", self._get_stat_total_sales(), "#e65100"),
+        kpi_data = [
+            ("customers", "👥", "مشتریان", self._get_stat_count("customers"), "#2e7d32", "#e8f5e9"),
+            ("inventory", "📦", "کل کالاها", self._get_stat_count("products"), "#5b3ec8", "#ede7f6"),
+            ("sales", "📄", "فاکتورها", self._get_stat_count("invoices"), "#c62828", "#ffebee"),
+            ("sales", "💰", "کل فروش", self._get_stat_total_sales(), "#e65100", "#fff3e0"),
         ]
 
-        for i, (target_key, icon, title, value, color) in enumerate(stats_data):
-            # به جای QFrame از QPushButton استفاده می‌کنیم تا قابل کلیک باشد
-            card = self._create_quick_stat_card(icon, title, value, color, target_key)
-            stats_layout.addWidget(card, i // 2, i % 2)  # دو ستون
+        card_widgets = []
 
-        lay.addWidget(stats_frame)
-        lay.addStretch()
+        for i, (target_key, icon, title, value, color, bg_color) in enumerate(kpi_data):
+            card = self._create_kpi_card(icon, title, value, color, bg_color, target_key)
+            apply_3d_shadow(card)
+            kpi_layout.addWidget(card, i // 4, i % 4)
+            card_widgets.append(card)
+
+        main_layout.addLayout(kpi_layout)
+
+        # --- ردیف ۲: نمودارها ---
+        if CHARTS_AVAILABLE:
+            charts_layout = QHBoxLayout()
+            charts_layout.setSpacing(20)
+
+            sales_chart = self._create_sales_line_chart()
+            if sales_chart:
+                apply_3d_shadow(sales_chart)
+                charts_layout.addWidget(sales_chart, 1)
+
+            pie_chart = self._create_inventory_pie_chart()
+            if pie_chart:
+                apply_3d_shadow(pie_chart)
+                charts_layout.addWidget(pie_chart, 1)
+
+            main_layout.addLayout(charts_layout)
+
+        main_layout.addStretch()
+
+        # انیمیشن محو شدن کارت‌ها
+        QTimer.singleShot(100, lambda: self._animate_cards(card_widgets))
 
         return page
+
+    def _animate_cards(self, cards: list):
+        """انیمیشن ورود کارت‌ها (فقط Fade In)."""
+        if not cards:
+            return
+
+        group = QParallelAnimationGroup(self)
+
+        for i, card in enumerate(cards):
+            anim_opacity = QPropertyAnimation(card, b"windowOpacity")
+            anim_opacity.setDuration(700 + i * 150)
+            anim_opacity.setStartValue(0.0)
+            anim_opacity.setEndValue(1.0)
+            anim_opacity.setEasingCurve(QEasingCurve.InOutQuad)
+            group.addAnimation(anim_opacity)
+
+        group.start()
+        self._animations.append(group)
+
+    def _create_kpi_card(self, icon: str, title: str, value: str, color: str, bg_color: str, target_key: str) -> QPushButton:
+        """ساخت کارت آماری KPI مدرن، کارتونی و قابل کلیک."""
+        card = QPushButton()
+        card.setObjectName("kpiCard")
+        card.setCursor(Qt.PointingHandCursor)
+        card.setMinimumSize(150, 120)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        card.setStyleSheet(f"""
+            QPushButton#kpiCard {{
+                background-color: {bg_color};
+                border: 2px solid {color}40;
+                border-radius: 25px;
+                padding: 15px;
+                text-align: center;
+                font-weight: bold;
+            }}
+            QPushButton#kpiCard:hover {{
+                border: 3px solid {color};
+                background-color: {bg_color}CC;
+                transform: scale(1.05);
+            }}
+            QPushButton#kpiCard:pressed {{
+                transform: scale(0.95);
+            }}
+        """)
+
+        layout = QVBoxLayout(card)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(8)
+
+        lbl_icon = QLabel(icon)
+        lbl_icon.setStyleSheet("font-size: 32px;")
+        layout.addWidget(lbl_icon)
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold; font-family: 'Segoe UI';")
+        layout.addWidget(lbl_title)
+
+        lbl_value = QLabel(value)
+        lbl_value.setStyleSheet("color: #1a1a2e; font-size: 24px; font-weight: 900; font-family: 'Segoe UI';")
+        layout.addWidget(lbl_value)
+
+        card.clicked.connect(lambda _, k=target_key: self._navigate_to_page(k))
+
+        return card
+
+    def _create_sales_line_chart(self) -> Optional[QWidget]:
+        """ساخت نمودار خطی فروش با انیمیشن."""
+        try:
+            series = QLineSeries()
+            series.append(0, 5)
+            series.append(1, 12)
+            series.append(2, 8)
+            series.append(3, 20)
+            series.append(4, 15)
+            series.append(5, 25)
+
+            chart = QChart()
+            chart.addSeries(series)
+            chart.setTitle("نمودار فروش ماهانه")
+            chart.setTitleBrush(QColor("#4d3a78"))
+            chart.setAnimationOptions(QChart.SeriesAnimations)
+
+            axis_x = QValueAxis()
+            axis_x.setTitleText("ماه")
+            axis_x.setLabelFormat("%d")
+            chart.addAxis(axis_x, Qt.AlignBottom)
+            series.attachAxis(axis_x)
+
+            axis_y = QValueAxis()
+            axis_y.setTitleText("فروش")
+            chart.addAxis(axis_y, Qt.AlignLeft)
+            series.attachAxis(axis_y)
+
+            chart_view = QChartView(chart)
+            chart_view.setRenderHint(QPainter.Antialiasing)
+            chart_view.setMinimumHeight(250)
+            return chart_view
+        except:
+            return None
+
+    def _create_inventory_pie_chart(self) -> Optional[QWidget]:
+        """ساخت نمودار دایره‌ای توزیع موجودی محصولات با داده‌های واقعی."""
+        try:
+            with get_connection() as conn:
+                rows = conn.execute("SELECT name, quantity FROM products ORDER BY quantity DESC LIMIT 8").fetchall()
+
+            if not rows:
+                rows = [
+                    {"name": "آب معدنی", "quantity": 100},
+                    {"name": "سس", "quantity": 70},
+                    {"name": "شامپو", "quantity": 50},
+                    {"name": "دستمال", "quantity": 30},
+                ]
+
+            series = QPieSeries()
+            for row in rows:
+                series.append(row["name"], row["quantity"] or 0)
+
+            chart = QChart()
+            chart.addSeries(series)
+            chart.setTitle("توزیع موجودی محصولات")
+            chart.setTitleBrush(QColor("#4d3a78"))
+            chart.setAnimationOptions(QChart.SeriesAnimations)
+
+            chart_view = QChartView(chart)
+            chart_view.setRenderHint(QPainter.Antialiasing)
+            chart_view.setMinimumHeight(250)
+            return chart_view
+        except:
+            return None
 
     def _get_stat_count(self, table_name: str) -> str:
         """دریافت تعداد رکوردهای یک جدول."""
@@ -481,63 +729,20 @@ class Dashboard(QWidget):
         except:
             return "0"
 
-    def _create_quick_stat_card(self, icon: str, title: str, value: str, color: str, target_key: str) -> QPushButton:
-        """ساخت کارت آمار سریع قابل کلیک با استفاده از QPushButton."""
-        card = QPushButton()
-        card.setObjectName("quickStatCard")
-        card.setCursor(Qt.PointingHandCursor)
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        card.setMinimumSize(140, 90)
-        card.setStyleSheet(f"""
-            QPushButton#quickStatCard {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #ffffff, stop:1 #f8f6ff);
-                border: 2px solid {color}33;
-                border-radius: 16px;
-                padding: 16px;
-                text-align: left;
-            }}
-            QPushButton#quickStatCard:hover {{
-                border-color: {color};
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #ffffff, stop:1 {color}10);
-            }}
-        """)
-
-        layout = QVBoxLayout(card)
-        layout.setSpacing(4)
-
-        lbl_icon = QLabel(icon)
-        lbl_icon.setStyleSheet("font-size: 24px;")
-
-        lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
-
-        lbl_value = QLabel(value)
-        lbl_value.setStyleSheet("color: #1a1a2e; font-size: 20px; font-weight: bold;")
-
-        layout.addWidget(lbl_icon)
-        layout.addWidget(lbl_title)
-        layout.addWidget(lbl_value)
-
-        # اتصال کلیک به صفحه مربوطه
-        card.clicked.connect(lambda _, k=target_key: self._navigate_to_page(k))
-
-        return card
-
     def _navigate_to_page(self, key: str) -> None:
         """هدایت کاربر به صفحه مربوطه با کلیک روی کارت آماری."""
         if not self.has_access(key):
             QMessageBox.warning(self, "دسترسی محدود", "شما به این بخش دسترسی ندارید.")
             return
         
-        # پیدا کردن ایندکس صفحه در استک از طریق صفحه‌های ساخته شده
+        if key == "customers":
+            key = "sales"
+        
         for idx, (k, label, icon) in enumerate(self.MENU_ITEMS):
             if k == key:
                 self._on_menu_clicked(idx, k)
                 return
         
-        # اگر کلید با منو مطابقت نداشت، از طریق cache پیدا می‌کنیم
         if key in self._page_cache:
             for idx in range(self.stack.count()):
                 if self.stack.widget(idx) is self._page_cache[key]:
@@ -611,4 +816,5 @@ class Dashboard(QWidget):
 
     # ============================================================ STYLES
     def _apply_styles(self) -> None:
+        """اعمال استایل‌های داشبورد"""
         pass
